@@ -6,7 +6,7 @@ description = "DNS message serialization/deserialization library"
 license = "MIT"
 authors = ["WatchDG <baranov@w3m.co>"]
 repository = "https://github.com/WatchDG/rust-dnsio"
-keywords = ["dns", "serialization", "deserialization", "network", "protocol", "parser"]
+keywords = ["dns", "serialization", "deserialization", "protocol", "parser"]
 categories = ["network-programming", "parsing"]
 readme = "README.md"
 
