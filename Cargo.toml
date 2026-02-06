@@ -1,0 +1,14 @@
+[package]
+name = "dnsio"
+version = "0.1.0"
+edition = "2024"
+description = "DNS message serialization/deserialization library"
+license = "MIT"
+authors = ["WatchDG <baranov@w3m.co>"]
+repository = "https://github.com/WatchDG/rust-dnsio"
+keywords = ["dns", "serialization", "deserialization", "network", "protocol", "parser"]
+categories = ["network-programming", "parsing"]
+readme = "README.md"
+
+[dependencies]
+dns-message="0.1.1"
