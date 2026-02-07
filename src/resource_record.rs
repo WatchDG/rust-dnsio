@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::question::decode_name;
-use dns_message::ResourceRecord;
+use dns_message::resource_record::ResourceRecord;
 
 pub fn decode_resource_record<'a>(data: &'a [u8]) -> Result<(ResourceRecord<'a>, usize), Error> {
     let mut offset = 0;
