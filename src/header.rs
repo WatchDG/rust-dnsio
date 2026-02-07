@@ -1,7 +1,9 @@
 use crate::error::Error;
 
 use dns_message::Header;
-use dns_message::header::{AA, Flags, QR, RD, TC};
+use dns_message::header::{
+    AuthoritativeAnswer, Flags, QueryResponse, RecursionDesired, Truncation,
+};
 
 pub fn decode_header(data: &[u8]) -> Result<(Header, usize), Error> {
     if data.len() < 12 {
@@ -48,11 +50,11 @@ pub fn calculate_header_length(_header: &Header) -> usize {
 
 fn flags_from_bytes(h: u8, l: u8) -> Flags {
     Flags::new(
-        QR::from(h),
+        QueryResponse::from(h),
         (h >> 3) & 0x0F,
-        AA::from(h),
-        TC::from(h),
-        RD::from(h),
+        AuthoritativeAnswer::from(h),
+        Truncation::from(h),
+        RecursionDesired::from(h),
         (l & 0x80) != 0,
         ((l >> 4) & 0x07) as u8,
         (l & 0x0F) as u8,
@@ -60,11 +62,11 @@ fn flags_from_bytes(h: u8, l: u8) -> Flags {
 }
 
 fn flags_to_bytes(flags: &Flags) -> (u8, u8) {
-    let h = flags.qr as u8
+    let h: u8 = u8::from(flags.qr)
         | (flags.op_code as u8 & 0x0F) << 3
-        | flags.aa as u8
-        | flags.tc as u8
-        | flags.rd as u8;
+        | u8::from(flags.aa)
+        | u8::from(flags.tc)
+        | u8::from(flags.rd);
 
     let mut l = 0u8;
     if flags.ra {
