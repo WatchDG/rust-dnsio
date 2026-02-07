@@ -59,3 +59,53 @@ pub fn decode_name(data: &[u8]) -> Result<(&[u8], usize), Error> {
 
     Ok((&data[0..offset], offset))
 }
+
+pub fn encode_name<'a>(name: &[u8], buf: &'a mut [u8]) -> Result<(&'a [u8], usize), Error> {
+    if name.is_empty() {
+        return Err(Error::InvalidDomainName);
+    }
+
+    if name.last() != Some(&0) {
+        return Err(Error::InvalidDomainName);
+    }
+
+    if buf.len() < name.len() {
+        return Err(Error::InsufficientData);
+    }
+
+    buf[..name.len()].copy_from_slice(name);
+    Ok((&buf[..name.len()], name.len()))
+}
+
+pub fn encode_questions<'a>(
+    questions: &[Question<'a>],
+    buf: &'a mut [u8],
+) -> Result<(&'a [u8], usize), Error> {
+    if questions.is_empty() {
+        return Ok((&buf[..0], 0));
+    }
+
+    let mut offset = 0;
+
+    for question in questions {
+        let name = question.q_name;
+        let (_, name_len) = encode_name(name, &mut buf[offset..])?;
+        offset += name_len;
+
+        if offset + 4 > buf.len() {
+            return Err(Error::InsufficientData);
+        }
+
+        buf[offset] = (question.q_type >> 8) as u8;
+        buf[offset + 1] = question.q_type as u8;
+        buf[offset + 2] = (question.q_class >> 8) as u8;
+        buf[offset + 3] = question.q_class as u8;
+        offset += 4;
+    }
+
+    Ok((&buf[..offset], offset))
+}
+
+pub fn calculate_questions_length(questions: &[Question<'_>]) -> usize {
+    questions.iter().map(|q| q.q_name.len() + 4).sum()
+}

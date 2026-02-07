@@ -51,3 +51,63 @@ pub fn decode_resource_records<'a>(
 
     Ok((records, offset))
 }
+
+pub fn encode_resource_record<'a>(
+    record: &ResourceRecord<'a>,
+    buf: &'a mut [u8],
+) -> Result<(&'a [u8], usize), Error> {
+    let mut offset = 0;
+
+    let (_, name_len) = crate::question::encode_name(record.rr_name, &mut buf[offset..])?;
+    offset += name_len;
+
+    if offset + 10 > buf.len() {
+        return Err(Error::InsufficientData);
+    }
+
+    buf[offset] = (record.rr_type >> 8) as u8;
+    buf[offset + 1] = record.rr_type as u8;
+    buf[offset + 2] = (record.rr_class >> 8) as u8;
+    buf[offset + 3] = record.rr_class as u8;
+    buf[offset + 4] = (record.rr_ttl >> 24) as u8;
+    buf[offset + 5] = (record.rr_ttl >> 16) as u8;
+    buf[offset + 6] = (record.rr_ttl >> 8) as u8;
+    buf[offset + 7] = record.rr_ttl as u8;
+    buf[offset + 8] = (record.rr_rd_length >> 8) as u8;
+    buf[offset + 9] = record.rr_rd_length as u8;
+    offset += 10;
+
+    if offset + record.rr_data.len() > buf.len() {
+        return Err(Error::InsufficientData);
+    }
+
+    buf[offset..offset + record.rr_data.len()].copy_from_slice(record.rr_data);
+    offset += record.rr_data.len();
+
+    Ok((&buf[..offset], offset))
+}
+
+pub fn encode_resource_records<'a>(
+    records: &[ResourceRecord<'a>],
+    buf: &'a mut [u8],
+) -> Result<(&'a [u8], usize), Error> {
+    if records.is_empty() {
+        return Ok((&buf[..0], 0));
+    }
+
+    let mut offset = 0;
+
+    for record in records {
+        let (_, bytes_written) = encode_resource_record(record, &mut buf[offset..])?;
+        offset += bytes_written;
+    }
+
+    Ok((&buf[..offset], offset))
+}
+
+pub fn calculate_resource_records_length(records: &[ResourceRecord<'_>]) -> usize {
+    records
+        .iter()
+        .map(|r| r.rr_name.len() + 10 + r.rr_data.len())
+        .sum()
+}
