@@ -5,8 +5,7 @@ version = 4
 [[package]]
 name = "dns-message"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "304aa3d8181b2652b26543b899edea78673263615f8d15ad4a9cff29b9f036fb"
+source = "git+https://github.com/WatchDG/rust-dns-message.git?branch=feature%2Fnext#93a5e9921fcb322e0f00fce5a8bc297711f6550c"
 
 [[package]]
 name = "dnsio"

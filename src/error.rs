@@ -3,6 +3,8 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     InvalidHeaderLength,
+    InsufficientData,
+    InvalidDomainName,
 }
 
 impl fmt::Display for Error {
@@ -10,6 +12,12 @@ impl fmt::Display for Error {
         match self {
             Error::InvalidHeaderLength => {
                 write!(f, "DNS header must be at least 12 bytes")
+            }
+            Error::InsufficientData => {
+                write!(f, "Insufficient data to decode DNS question")
+            }
+            Error::InvalidDomainName => {
+                write!(f, "Invalid domain name format")
             }
         }
     }
