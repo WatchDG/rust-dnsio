@@ -1,6 +1,6 @@
 mod error;
 
-use dns_message::Header;
+use dns_message::{Header, Message};
 
 pub use error::Error;
 
@@ -19,4 +19,10 @@ pub fn decode_header(data: &[u8]) -> Result<Header, Error> {
     Ok(Header::new(
         id, flags, qd_count, an_count, ns_count, ar_count,
     ))
+}
+
+pub fn decode_message(data: &[u8]) -> Result<Message, Error> {
+    let header = decode_header(data)?;
+
+    Ok(Message::new(header))
 }

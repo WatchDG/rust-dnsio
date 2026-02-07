@@ -4,13 +4,13 @@ version = 4
 
 [[package]]
 name = "dns-message"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7407f7c55c1b5e8bb678ff25b8ce6b067071a757067dc4977184159254c3034"
+checksum = "304aa3d8181b2652b26543b899edea78673263615f8d15ad4a9cff29b9f036fb"
 
 [[package]]
 name = "dnsio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dns-message",
 ]
