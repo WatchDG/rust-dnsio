@@ -1,16 +1,19 @@
 use crate::error::Error;
 use dns_message::Question;
 
-pub fn decode_questions<'a>(data: &'a [u8], qd_count: u16) -> Result<Vec<Question<'a>>, Error> {
+pub fn decode_questions<'a>(
+    data: &'a [u8],
+    qd_count: u16,
+) -> Result<(Vec<Question<'a>>, usize), Error> {
     if qd_count == 0 {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     }
 
     let mut questions = Vec::with_capacity(qd_count as usize);
     let mut offset = 0;
 
     for _ in 0..qd_count {
-        let (q_name_end, q_name) = decode_q_name(&data[offset..])?;
+        let (q_name, q_name_end) = decode_name(&data[offset..])?;
         offset += q_name_end;
 
         if offset + 4 > data.len() {
@@ -25,10 +28,10 @@ pub fn decode_questions<'a>(data: &'a [u8], qd_count: u16) -> Result<Vec<Questio
         questions.push(question);
     }
 
-    Ok(questions)
+    Ok((questions, offset))
 }
 
-fn decode_q_name(data: &[u8]) -> Result<(usize, &[u8]), Error> {
+pub fn decode_name(data: &[u8]) -> Result<(&[u8], usize), Error> {
     let mut offset = 0;
 
     loop {
@@ -54,5 +57,5 @@ fn decode_q_name(data: &[u8]) -> Result<(usize, &[u8]), Error> {
         offset += length;
     }
 
-    Ok((offset, &data[0..offset]))
+    Ok((&data[0..offset], offset))
 }

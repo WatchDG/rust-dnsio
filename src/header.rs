@@ -2,7 +2,7 @@ use crate::error::Error;
 
 use dns_message::Header;
 
-pub fn decode_header(data: &[u8]) -> Result<Header, Error> {
+pub fn decode_header(data: &[u8]) -> Result<(Header, usize), Error> {
     if data.len() < 12 {
         return Err(Error::InvalidHeaderLength);
     }
@@ -14,7 +14,6 @@ pub fn decode_header(data: &[u8]) -> Result<Header, Error> {
     let ns_count = (data[8] as u16) << 8 | data[9] as u16;
     let ar_count = (data[10] as u16) << 8 | data[11] as u16;
 
-    Ok(Header::new(
-        id, flags, qd_count, an_count, ns_count, ar_count,
-    ))
+    let header = Header::new(id, flags, qd_count, an_count, ns_count, ar_count);
+    Ok((header, 12))
 }
