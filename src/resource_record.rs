@@ -1,11 +1,15 @@
 use crate::error::Error;
 use crate::question::decode_name;
-use dns_message::resource_record::ResourceRecord;
+use dns_message::resource_record::{ResourceRecord, ResourceRecordNameKind};
 
-pub fn decode_resource_record<'a>(data: &'a [u8]) -> Result<(ResourceRecord<'a>, usize), Error> {
+pub fn decode_resource_record<'a>(
+    data: &'a [u8],
+    message_data: &'a [u8],
+    message_offset: usize,
+) -> Result<(ResourceRecord<'a>, usize), Error> {
     let mut offset = 0;
 
-    let (name, name_end) = decode_name(&data[offset..])?;
+    let (name, name_end) = decode_name(message_data, message_offset + offset)?;
     offset += name_end;
 
     if offset + 10 > data.len() {
@@ -34,6 +38,8 @@ pub fn decode_resource_record<'a>(data: &'a [u8]) -> Result<(ResourceRecord<'a>,
 
 pub fn decode_resource_records<'a>(
     data: &'a [u8],
+    message_data: &'a [u8],
+    message_offset: usize,
     n: u16,
 ) -> Result<(Vec<ResourceRecord<'a>>, usize), Error> {
     if n == 0 {
@@ -44,7 +50,8 @@ pub fn decode_resource_records<'a>(
     let mut offset = 0;
 
     for _ in 0..n {
-        let (record, bytes_read) = decode_resource_record(&data[offset..])?;
+        let (record, bytes_read) =
+            decode_resource_record(&data[offset..], message_data, message_offset + offset)?;
         offset += bytes_read;
         records.push(record);
     }
@@ -108,6 +115,12 @@ pub fn encode_resource_records<'a>(
 pub fn calculate_resource_records_length(records: &[ResourceRecord<'_>]) -> usize {
     records
         .iter()
-        .map(|r| r.rr_name.len() + 10 + r.rr_data.len())
+        .map(|r| {
+            let name_len = match r.rr_name.kind {
+                ResourceRecordNameKind::Inline(slice) => slice.len(),
+                ResourceRecordNameKind::Pointer(_) => 2,
+            };
+            name_len + 10 + r.rr_data.len()
+        })
         .sum()
 }
