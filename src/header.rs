@@ -2,7 +2,8 @@ use crate::error::Error;
 
 use dns_message::Header;
 use dns_message::header::{
-    AuthoritativeAnswer, Flags, QueryResponse, RecursionDesired, Truncation,
+    AuthoritativeAnswer, Flags, QueryResponse, RecursionAvailable, RecursionDesired, ReservedZ,
+    Truncation,
 };
 
 pub fn decode_header(data: &[u8]) -> Result<(Header, usize), Error> {
@@ -55,8 +56,8 @@ fn flags_from_bytes(h: u8, l: u8) -> Flags {
         AuthoritativeAnswer::from(h),
         Truncation::from(h),
         RecursionDesired::from(h),
-        (l & 0x80) != 0,
-        ((l >> 4) & 0x07) as u8,
+        RecursionAvailable::from(l),
+        ReservedZ::from(l),
         (l & 0x0F) as u8,
     )
 }
@@ -68,11 +69,7 @@ fn flags_to_bytes(flags: &Flags) -> (u8, u8) {
         | u8::from(flags.tc)
         | u8::from(flags.rd);
 
-    let mut l = 0u8;
-    if flags.ra {
-        l |= 0x0080;
-    }
-    l |= (flags.z & 0x07) << 4;
+    let mut l = u8::from(flags.ra) | u8::from(flags.z);
     l |= flags.r_code & 0x0F;
     (h, l)
 }
