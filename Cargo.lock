@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "dns-message"
 version = "0.1.2"
-source = "git+https://github.com/WatchDG/rust-dns-message.git?branch=feature%2Fnext#ef974560ad1d3e0e8f8eed898e6b698c8bff23ab"
+source = "git+https://github.com/WatchDG/rust-dns-message.git?branch=feature%2Fnext#e3e8d7191155ae7aa6ced061a8436788dc3a5745"
 
 [[package]]
 name = "dnsio"

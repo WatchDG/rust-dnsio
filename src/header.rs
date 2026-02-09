@@ -51,25 +51,25 @@ pub fn calculate_header_length(_header: &Header) -> usize {
 
 fn flags_from_bytes(h: u8, l: u8) -> Flags {
     Flags::new(
-        QueryResponse::from(h),
+        QueryResponse::from_flags_byte(h),
         (h >> 3) & 0x0F,
-        AuthoritativeAnswer::from(h),
-        Truncation::from(h),
-        RecursionDesired::from(h),
-        RecursionAvailable::from(l),
-        ReservedZ::from(l),
+        AuthoritativeAnswer::from_flags_byte(h),
+        Truncation::from_flags_byte(h),
+        RecursionDesired::from_flags_byte(h),
+        RecursionAvailable::from_flags_byte(l),
+        ReservedZ::from_flags_byte(l),
         (l & 0x0F) as u8,
     )
 }
 
 fn flags_to_bytes(flags: &Flags) -> (u8, u8) {
-    let h: u8 = u8::from(flags.qr)
+    let h: u8 = flags.qr.to_flags_byte_bits()
         | (flags.op_code as u8 & 0x0F) << 3
-        | u8::from(flags.aa)
-        | u8::from(flags.tc)
-        | u8::from(flags.rd);
+        | flags.aa.to_flags_byte_bits()
+        | flags.tc.to_flags_byte_bits()
+        | flags.rd.to_flags_byte_bits();
 
-    let mut l = u8::from(flags.ra) | u8::from(flags.z);
+    let mut l = flags.ra.to_flags_byte_bits() | flags.z.to_flags_byte_bits();
     l |= flags.r_code & 0x0F;
     (h, l)
 }
