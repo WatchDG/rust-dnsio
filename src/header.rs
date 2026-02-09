@@ -1,10 +1,7 @@
 use crate::error::Error;
 
 use dns_message::Header;
-use dns_message::header::{
-    AuthoritativeAnswer, Flags, QueryResponse, RecursionAvailable, RecursionDesired, ReservedZ,
-    Truncation,
-};
+use dns_message::header::Flags;
 
 pub fn decode_header(data: &[u8]) -> Result<(Header, usize), Error> {
     if data.len() < 12 {
@@ -12,7 +9,7 @@ pub fn decode_header(data: &[u8]) -> Result<(Header, usize), Error> {
     }
 
     let id = (data[0] as u16) << 8 | data[1] as u16;
-    let flags = flags_from_bytes(data[2], data[3]);
+    let flags = Flags::from_flags_bytes(data[2], data[3]);
     let qd_count = (data[4] as u16) << 8 | data[5] as u16;
     let an_count = (data[6] as u16) << 8 | data[7] as u16;
     let ns_count = (data[8] as u16) << 8 | data[9] as u16;
@@ -27,7 +24,7 @@ pub fn encode_header<'a>(header: &Header, buf: &'a mut [u8]) -> Result<(&'a [u8]
         return Err(Error::InvalidHeaderLength);
     }
 
-    let (h_flags, l_flags) = flags_to_bytes(&header.flags);
+    let (h_flags, l_flags) = header.flags.to_flags_bytes();
 
     buf[0] = (header.id >> 8) as u8;
     buf[1] = header.id as u8;
@@ -49,37 +46,13 @@ pub fn calculate_header_length(_header: &Header) -> usize {
     12
 }
 
-fn flags_from_bytes(h: u8, l: u8) -> Flags {
-    Flags::new(
-        QueryResponse::from_flags_byte(h),
-        (h >> 3) & 0x0F,
-        AuthoritativeAnswer::from_flags_byte(h),
-        Truncation::from_flags_byte(h),
-        RecursionDesired::from_flags_byte(h),
-        RecursionAvailable::from_flags_byte(l),
-        ReservedZ::from_flags_byte(l),
-        (l & 0x0F) as u8,
-    )
-}
-
-fn flags_to_bytes(flags: &Flags) -> (u8, u8) {
-    let h: u8 = flags.qr.to_flags_byte_bits()
-        | (flags.op_code as u8 & 0x0F) << 3
-        | flags.aa.to_flags_byte_bits()
-        | flags.tc.to_flags_byte_bits()
-        | flags.rd.to_flags_byte_bits();
-
-    let mut l = flags.ra.to_flags_byte_bits() | flags.z.to_flags_byte_bits();
-    l |= flags.r_code & 0x0F;
-    (h, l)
-}
-
 pub fn decode_header_flags(data: &[u8]) -> Result<(Flags, usize), Error> {
     if data.len() < 2 {
         return Err(Error::InsufficientData);
     }
 
-    let flags = flags_from_bytes(data[0], data[1]);
+    let flags = Flags::from_flags_bytes(data[0], data[1]);
+
     Ok((flags, 2))
 }
 
@@ -91,7 +64,7 @@ pub fn encode_header_flags<'a>(
         return Err(Error::InsufficientData);
     }
 
-    let (h, l) = flags_to_bytes(flags);
+    let (h, l) = flags.to_flags_bytes();
     buf[0] = h;
     buf[1] = l;
 
