@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::question::decode_name;
-use dns_message::resource_record::{ResourceRecord, ResourceRecordNameKind};
+use dns_message::resource_record::{RRClass, RRType, ResourceRecord, ResourceRecordNameKind};
 
 pub fn decode_resource_record<'a>(
     data: &'a [u8],
@@ -16,8 +16,9 @@ pub fn decode_resource_record<'a>(
         return Err(Error::InsufficientData);
     }
 
-    let r_type = (data[offset] as u16) << 8 | data[offset + 1] as u16;
-    let r_class = (data[offset + 2] as u16) << 8 | data[offset + 3] as u16;
+    let rr_type = RRType::from_rr_bytes(data[offset], data[offset + 1]);
+    let rr_class = RRClass::from_rr_bytes(data[offset + 2], data[offset + 3]);
+
     let ttl = (data[offset + 4] as u32) << 24
         | (data[offset + 5] as u32) << 16
         | (data[offset + 6] as u32) << 8
@@ -32,7 +33,7 @@ pub fn decode_resource_record<'a>(
     let r_data = &data[offset..offset + rdlength as usize];
     offset += rdlength as usize;
 
-    let resource_record = ResourceRecord::new(name, r_type, r_class, ttl, rdlength, r_data);
+    let resource_record = ResourceRecord::new(name, rr_type, rr_class, ttl, rdlength, r_data);
     Ok((resource_record, offset))
 }
 
@@ -72,10 +73,13 @@ pub fn encode_resource_record<'a>(
         return Err(Error::InsufficientData);
     }
 
-    buf[offset] = (record.rr_type >> 8) as u8;
-    buf[offset + 1] = record.rr_type as u8;
-    buf[offset + 2] = (record.rr_class >> 8) as u8;
-    buf[offset + 3] = record.rr_class as u8;
+    let (h_rr_type, l_rr_type) = record.rr_type.to_rr_bytes();
+    let (h_rr_class, l_rr_class) = record.rr_class.to_rr_bytes();
+
+    buf[offset] = h_rr_type;
+    buf[offset + 1] = l_rr_type;
+    buf[offset + 2] = h_rr_class;
+    buf[offset + 3] = l_rr_class;
     buf[offset + 4] = (record.rr_ttl >> 24) as u8;
     buf[offset + 5] = (record.rr_ttl >> 16) as u8;
     buf[offset + 6] = (record.rr_ttl >> 8) as u8;

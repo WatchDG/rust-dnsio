@@ -1,6 +1,6 @@
 use crate::error::Error;
-use dns_message::Question;
 use dns_message::resource_record::{ResourceRecordName, ResourceRecordNameKind};
+use dns_message::{QClass, QType, Question};
 
 pub fn decode_questions<'a>(
     data: &'a [u8],
@@ -23,8 +23,8 @@ pub fn decode_questions<'a>(
             return Err(Error::InsufficientData);
         }
 
-        let q_type = (data[offset] as u16) << 8 | data[offset + 1] as u16;
-        let q_class = (data[offset + 2] as u16) << 8 | data[offset + 3] as u16;
+        let q_type = QType::from_question_bytes(data[offset], data[offset + 1]);
+        let q_class = QClass::from_question_bytes(data[offset + 2], data[offset + 3]);
         offset += 4;
 
         let q_name_slice = match q_name.kind {
@@ -138,10 +138,13 @@ pub fn encode_questions<'a>(
             return Err(Error::InsufficientData);
         }
 
-        buf[offset] = (question.q_type >> 8) as u8;
-        buf[offset + 1] = question.q_type as u8;
-        buf[offset + 2] = (question.q_class >> 8) as u8;
-        buf[offset + 3] = question.q_class as u8;
+        let (h_q_type, l_q_type) = question.q_type.to_question_bytes();
+        let (h_q_class, l_q_class) = question.q_class.to_question_bytes();
+
+        buf[offset] = h_q_type;
+        buf[offset + 1] = l_q_type;
+        buf[offset + 2] = h_q_class;
+        buf[offset + 3] = l_q_class;
         offset += 4;
     }
 
