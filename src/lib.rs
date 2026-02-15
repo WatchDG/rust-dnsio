@@ -1,11 +1,13 @@
+mod decode;
+mod encode;
 mod error;
-mod header;
-mod message;
-mod question;
-mod resource_record;
 
+pub use decode::{
+    decode_flags, decode_header, decode_message, decode_name, decode_question,
+    decode_resource_record, decode_resource_records,
+};
+pub use encode::{
+    encode_flags, encode_header, encode_message, encode_name, encode_question,
+    encode_resource_record, encode_resource_records,
+};
 pub use error::Error;
-pub use header::{decode_flags, decode_header, encode_flags, encode_header};
-pub use message::{decode_message, encode_message};
-pub use question::{decode_name, decode_question, encode_name, encode_question};
-pub use resource_record::{decode_resource_records, encode_resource_records};
