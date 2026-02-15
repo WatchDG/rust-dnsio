@@ -63,7 +63,3 @@ pub fn encode_flags<'a>(flags: &Flags, buf: &'a mut [u8]) -> Result<(&'a [u8], u
 
     Ok((&buf[0..2], 2))
 }
-
-pub fn flags_wire_length(_flags: &Flags) -> usize {
-    2
-}

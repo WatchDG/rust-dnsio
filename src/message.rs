@@ -4,7 +4,7 @@ use crate::question::{decode_question, encode_question};
 use crate::resource_record::{decode_resource_records, encode_resource_records};
 
 use dns_message::Message;
-use dns_message::wire_length::message_wire_length;
+use mt::WireLength;
 
 pub fn decode_message<'a>(data: &'a [u8]) -> Result<Message<'a>, Error> {
     let (header, header_index) = decode_header(&data)?;
@@ -30,7 +30,7 @@ pub fn decode_message<'a>(data: &'a [u8]) -> Result<Message<'a>, Error> {
 }
 
 pub fn encode_message<'a>(message: &Message<'a>) -> Result<Vec<u8>, Error> {
-    let length = message_wire_length(message);
+    let length = message.wire_length();
     let mut data = Vec::with_capacity(length);
     data.resize(length, 0);
 
