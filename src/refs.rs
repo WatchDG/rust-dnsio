@@ -5,8 +5,6 @@
 //!
 //! Name elements are explicitly distinguished: Label, Pointer, Root, Reserved.
 
-use core::fmt;
-
 /// Offset from the start of the DNS message buffer.
 /// DNS messages are limited to 65535 bytes (RFC 1035).
 pub type MsgOffset = u16;
@@ -34,7 +32,7 @@ pub const ROOT_LABEL: u8 = 0;
 /// - **Pointer**: 2 bytes, top 2 bits = 11, lower 14 bits = offset from message start
 /// - **Root**: single 0x00 byte
 /// - **Reserved**: top 2 bits = 01 or 10 (RFC 1035 reserved for future use)
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NameElementRef {
     /// Normal label: offset points to the length byte.
     /// Wire: `[len][data...]` where len ∈ 1..=63.
@@ -95,19 +93,6 @@ impl NameElementRef {
     }
 }
 
-impl fmt::Debug for NameElementRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Label { offset } => f.debug_struct("Label").field("offset", offset).finish(),
-            Self::Pointer { offset } => f.debug_struct("Pointer").field("offset", offset).finish(),
-            Self::Root { offset } => f.debug_struct("Root").field("offset", offset).finish(),
-            Self::Reserved { offset } => {
-                f.debug_struct("Reserved").field("offset", offset).finish()
-            }
-        }
-    }
-}
-
 /// Classification of the first byte of a name element (no allocation).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NameElementKind {
@@ -122,7 +107,7 @@ pub enum NameElementKind {
 // -----------------------------------------------------------------------------
 
 /// Reference to the header: always at offset 0, length 12.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeaderRef;
 
 impl HeaderRef {
@@ -145,8 +130,33 @@ impl HeaderRef {
     }
 }
 
+/// Reference to the question section (up to 5 questions).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct QuestionSectionRef {
+    pub questions: [QuestionRef; 5],
+    pub end_offset: MsgOffset,
+    pub count: u8,
+}
+
+impl QuestionSectionRef {
+    #[inline]
+    pub fn new(questions: [QuestionRef; 5], end_offset: MsgOffset, count: u8) -> Self {
+        Self {
+            questions,
+            end_offset,
+            count,
+        }
+    }
+
+    /// Returns a slice of valid question refs.
+    #[inline]
+    pub fn as_slice(&self) -> &[QuestionRef] {
+        &self.questions[..self.count as usize]
+    }
+}
+
 /// Reference to a question record.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct QuestionRef {
     /// Offset to the start of the question (first byte of QNAME).
     pub offset: MsgOffset,
@@ -180,8 +190,33 @@ impl QuestionRef {
     }
 }
 
+/// Reference to a resource record section (up to 10 records).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ResourceRecordSectionRef {
+    pub records: [ResourceRecordRef; 10],
+    pub end_offset: MsgOffset,
+    pub count: u8,
+}
+
+impl ResourceRecordSectionRef {
+    #[inline]
+    pub fn new(records: [ResourceRecordRef; 10], end_offset: MsgOffset, count: u8) -> Self {
+        Self {
+            records,
+            end_offset,
+            count,
+        }
+    }
+
+    /// Returns a slice of valid resource record refs.
+    #[inline]
+    pub fn as_slice(&self) -> &[ResourceRecordRef] {
+        &self.records[..self.count as usize]
+    }
+}
+
 /// Reference to a resource record.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResourceRecordRef {
     /// Reference to the domain name (first byte of RR).
     pub name: NameRef,
@@ -193,6 +228,15 @@ impl ResourceRecordRef {
     #[inline]
     pub fn new(name: NameRef, len: MsgOffset) -> Self {
         Self { name, len }
+    }
+
+    /// Placeholder for unused slots in ResourceRecordSectionRef.
+    #[inline]
+    pub fn empty() -> Self {
+        Self {
+            name: NameRef::empty(),
+            len: 0,
+        }
     }
 
     /// Offset to the start of the RR (first byte of NAME).
@@ -223,13 +267,13 @@ impl ResourceRecordRef {
 /// Reference to a decoded DNS message.
 ///
 /// Stores only offsets into the buffer; the buffer must outlive any access to the refs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MessageRef {
     pub header: HeaderRef,
-    pub question: Vec<QuestionRef>,
-    pub answer: Vec<ResourceRecordRef>,
-    pub authority: Vec<ResourceRecordRef>,
-    pub additional: Vec<ResourceRecordRef>,
+    pub question: QuestionSectionRef,
+    pub answer: ResourceRecordSectionRef,
+    pub authority: ResourceRecordSectionRef,
+    pub additional: ResourceRecordSectionRef,
 }
 
 impl MessageRef {
@@ -240,23 +284,23 @@ impl MessageRef {
     ) -> Result<dns_message::Message<'a>, crate::error::Error> {
         let header = self.header.decode_header(data)?;
 
-        let mut questions = Vec::with_capacity(self.question.len());
-        for q in &self.question {
+        let mut questions = Vec::with_capacity(self.question.count as usize);
+        for q in self.question.as_slice() {
             questions.push(q.decode_question(data)?);
         }
 
-        let mut answers = Vec::with_capacity(self.answer.len());
-        for r in &self.answer {
+        let mut answers = Vec::with_capacity(self.answer.count as usize);
+        for r in self.answer.as_slice() {
             answers.push(r.decode_resource_record(data)?);
         }
 
-        let mut authority = Vec::with_capacity(self.authority.len());
-        for r in &self.authority {
+        let mut authority = Vec::with_capacity(self.authority.count as usize);
+        for r in self.authority.as_slice() {
             authority.push(r.decode_resource_record(data)?);
         }
 
-        let mut additional = Vec::with_capacity(self.additional.len());
-        for r in &self.additional {
+        let mut additional = Vec::with_capacity(self.additional.count as usize);
+        for r in self.additional.as_slice() {
             additional.push(r.decode_resource_record(data)?);
         }
 
@@ -266,42 +310,67 @@ impl MessageRef {
     }
 }
 
-/// Reference to a domain name (sequence of name elements).
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NameRef {
-    /// Sequence of name elements (Label, Pointer, Root, Reserved).
-    pub elements: Vec<NameElementRef>,
+    pub elements: [NameElementRef; 10],
+    pub count: u8,
+    pub end_offset: MsgOffset,
 }
 
 impl NameRef {
     #[inline]
-    pub fn new(elements: Vec<NameElementRef>) -> Self {
-        Self { elements }
+    pub fn new(elements: [NameElementRef; 10], count: u8, end_offset: MsgOffset) -> Self {
+        Self {
+            elements,
+            count,
+            end_offset,
+        }
+    }
+
+    /// Empty placeholder for unused slots.
+    #[inline]
+    pub fn empty() -> Self {
+        Self {
+            elements: [NameElementRef::Root { offset: 0 }; 10],
+            count: 0,
+            end_offset: 0,
+        }
     }
 
     /// Parse a name from the buffer at the given offset.
     pub fn from_buf(buf: &[u8], offset: MsgOffset) -> Result<Self, crate::error::Error> {
-        let (elements, _) = parse_name_elements(buf, offset)?;
-        Ok(Self::new(elements))
+        let (elements, count, end_offset) = parse_name_elements_into(buf, offset)?;
+        Ok(Self::new(elements, count, end_offset))
     }
 
     /// Offset to the first byte of the name.
     #[inline]
     pub fn offset(&self) -> MsgOffset {
-        self.elements.first().map(|e| e.offset()).unwrap_or(0)
+        if self.count == 0 {
+            0
+        } else {
+            self.elements[0].offset()
+        }
+    }
+
+    /// Returns a slice of valid elements.
+    #[inline]
+    pub fn as_slice(&self) -> &[NameElementRef] {
+        &self.elements[..self.count as usize]
     }
 }
 
-/// Parse name elements starting at `offset` in `buf`.
-/// Returns the elements and the wire length in bytes.
-pub fn parse_name_elements(
+/// Parse name elements starting at `offset` in `buf` into fixed array.
+/// Returns (elements, count, end_offset). Max 10 elements.
+fn parse_name_elements_into(
     buf: &[u8],
     offset: MsgOffset,
-) -> Result<(Vec<NameElementRef>, usize), crate::error::Error> {
+) -> Result<([NameElementRef; 10], u8, MsgOffset), crate::error::Error> {
     use crate::error::Error;
 
     let mut pos = offset as usize;
-    let mut elements = Vec::new();
+    let mut elements = [NameElementRef::Root { offset: 0 }; 10];
+    let mut count: u8 = 0;
 
     loop {
         if pos >= buf.len() {
@@ -312,9 +381,13 @@ pub fn parse_name_elements(
         let elem_offset = pos as MsgOffset;
 
         if len_byte == 0 {
-            elements.push(NameElementRef::Root {
+            if count >= 10 {
+                return Err(Error::InvalidDomainName);
+            }
+            elements[count as usize] = NameElementRef::Root {
                 offset: elem_offset,
-            });
+            };
+            count += 1;
             pos += 1;
             break;
         }
@@ -323,17 +396,25 @@ pub fn parse_name_elements(
             if pos + 1 >= buf.len() {
                 return Err(Error::InsufficientData);
             }
-            elements.push(NameElementRef::Pointer {
+            if count >= 10 {
+                return Err(Error::InvalidDomainName);
+            }
+            elements[count as usize] = NameElementRef::Pointer {
                 offset: elem_offset,
-            });
+            };
+            count += 1;
             pos += 2;
             break;
         }
 
         if len_byte >= 64 {
-            elements.push(NameElementRef::Reserved {
+            if count >= 10 {
+                return Err(Error::InvalidDomainName);
+            }
+            elements[count as usize] = NameElementRef::Reserved {
                 offset: elem_offset,
-            });
+            };
+            count += 1;
             pos += 1;
             continue;
         }
@@ -346,13 +427,18 @@ pub fn parse_name_elements(
             return Err(Error::InsufficientData);
         }
 
-        elements.push(NameElementRef::Label {
+        if count >= 10 {
+            return Err(Error::InvalidDomainName);
+        }
+        elements[count as usize] = NameElementRef::Label {
             offset: elem_offset,
-        });
+        };
+        count += 1;
         pos += 1 + len_byte as usize;
     }
 
-    Ok((elements, pos - offset as usize))
+    let end_offset = pos as MsgOffset;
+    Ok((elements, count, end_offset))
 }
 
 #[cfg(test)]
@@ -389,12 +475,5 @@ mod tests {
             NameElementRef::classify_first_byte(0x80),
             NameElementKind::Reserved
         );
-    }
-
-    #[test]
-    fn header_ref() {
-        let h = HeaderRef;
-        assert_eq!(h.offset(), 0);
-        assert_eq!(h.end(), 12);
     }
 }

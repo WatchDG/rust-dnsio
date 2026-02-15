@@ -3,7 +3,10 @@
 //! All structures store only offsets into the message buffer — no slices or lifetimes.
 
 use crate::error::Error;
-use crate::refs::{HeaderRef, MessageRef, MsgOffset, NameRef, QuestionRef, ResourceRecordRef};
+use crate::refs::{
+    HeaderRef, MessageRef, MsgOffset, NameRef, QuestionRef, QuestionSectionRef, ResourceRecordRef,
+    ResourceRecordSectionRef,
+};
 
 /// Returns the wire length of a domain name starting at `offset` in `buf`.
 fn name_wire_length_at(buf: &[u8], offset: MsgOffset) -> Result<usize, Error> {
@@ -55,6 +58,39 @@ fn question_wire_length_at(buf: &[u8], offset: MsgOffset) -> Result<usize, Error
     Ok(name_len + 4)
 }
 
+fn fill_resource_record_section(
+    data: &[u8],
+    offset: &mut MsgOffset,
+    count: u16,
+    max: usize,
+) -> Result<ResourceRecordSectionRef, Error> {
+    if count as usize > max {
+        return Err(Error::InvalidDomainName);
+    }
+
+    let mut records = [
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+        ResourceRecordRef::empty(),
+    ];
+
+    for i in 0..count as usize {
+        let len = resource_record_wire_length_at(data, *offset)? as MsgOffset;
+        let name = NameRef::from_buf(data, *offset)?;
+        records[i] = ResourceRecordRef::new(name, len);
+        *offset = offset.saturating_add(len);
+    }
+
+    Ok(ResourceRecordSectionRef::new(records, *offset, count as u8))
+}
+
 /// Returns the wire length of a resource record starting at `offset`.
 fn resource_record_wire_length_at(buf: &[u8], offset: MsgOffset) -> Result<usize, Error> {
     let name_len = name_wire_length_at(buf, offset)?;
@@ -79,52 +115,35 @@ fn resource_record_wire_length_at(buf: &[u8], offset: MsgOffset) -> Result<usize
 /// The returned `MessageRef` holds only offsets into `data`; `data` must remain valid
 /// for the lifetime of any access to the refs.
 pub fn decode_message_ref(data: &[u8]) -> Result<MessageRef, Error> {
-    if data.len() < 12 {
-        return Err(Error::InvalidHeaderLength);
+    let header_ref = HeaderRef;
+    let header = header_ref.decode_header(data)?;
+
+    let qd_count = header.qd_count;
+    let an_count = header.an_count;
+    let ns_count = header.ns_count;
+    let ar_count = header.ar_count;
+
+    if qd_count > 5 {
+        return Err(Error::InvalidDomainName);
     }
 
-    let qd_count = (data[4] as u16) << 8 | data[5] as u16;
-    let an_count = (data[6] as u16) << 8 | data[7] as u16;
-    let ns_count = (data[8] as u16) << 8 | data[9] as u16;
-    let ar_count = (data[10] as u16) << 8 | data[11] as u16;
-
-    let header = HeaderRef;
-
-    let mut question = Vec::with_capacity(qd_count as usize);
+    let mut questions = [QuestionRef::new(0, 0); 5];
     let mut offset: MsgOffset = 12;
 
-    for _ in 0..qd_count {
+    for i in 0..qd_count as usize {
         let len = question_wire_length_at(data, offset)? as MsgOffset;
-        question.push(QuestionRef::new(offset, len));
+        questions[i] = QuestionRef::new(offset, len);
         offset = offset.saturating_add(len);
     }
 
-    let mut answer = Vec::with_capacity(an_count as usize);
-    for _ in 0..an_count {
-        let len = resource_record_wire_length_at(data, offset)? as MsgOffset;
-        let name = NameRef::from_buf(data, offset)?;
-        answer.push(ResourceRecordRef::new(name, len));
-        offset = offset.saturating_add(len);
-    }
+    let question = QuestionSectionRef::new(questions, offset, qd_count as u8);
 
-    let mut authority = Vec::with_capacity(ns_count as usize);
-    for _ in 0..ns_count {
-        let len = resource_record_wire_length_at(data, offset)? as MsgOffset;
-        let name = NameRef::from_buf(data, offset)?;
-        authority.push(ResourceRecordRef::new(name, len));
-        offset = offset.saturating_add(len);
-    }
-
-    let mut additional = Vec::with_capacity(ar_count as usize);
-    for _ in 0..ar_count {
-        let len = resource_record_wire_length_at(data, offset)? as MsgOffset;
-        let name = NameRef::from_buf(data, offset)?;
-        additional.push(ResourceRecordRef::new(name, len));
-        offset = offset.saturating_add(len);
-    }
+    let answer = fill_resource_record_section(data, &mut offset, an_count, 10)?;
+    let authority = fill_resource_record_section(data, &mut offset, ns_count, 10)?;
+    let additional = fill_resource_record_section(data, &mut offset, ar_count, 10)?;
 
     Ok(MessageRef {
-        header,
+        header: header_ref,
         question,
         answer,
         authority,
