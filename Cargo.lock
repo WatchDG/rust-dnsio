@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "dns-message"
 version = "0.1.2"
-source = "git+https://github.com/WatchDG/rust-dns-message.git?branch=feature%2Fnext#d9ceae0ed638f0460a81dc12a2422b3d9b8b555c"
+source = "git+https://github.com/WatchDG/rust-dns-message.git?branch=feature%2Fnext#543aeb08884a1dcb790bfa0abb38966591c8582b"
 dependencies = [
  "mt",
 ]

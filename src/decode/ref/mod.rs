@@ -1,21 +1,9 @@
-//! Zero-copy decoding using offset-based ref structures from dns_message.
+//! Zero-copy decoding using offset-based ref structures.
 //!
 //! All structures store only offsets into the message buffer — no slices or lifetimes.
 
 use crate::error::Error;
-use dns_message::refs::{HeaderRef, MsgOffset, QuestionRef, ResourceRecordRef};
-
-/// Reference to a decoded DNS message.
-///
-/// Stores only offsets into the buffer; the buffer must outlive any access to the refs.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageRef {
-    pub header: HeaderRef,
-    pub question: Vec<QuestionRef>,
-    pub answer: Vec<ResourceRecordRef>,
-    pub authority: Vec<ResourceRecordRef>,
-    pub additional: Vec<ResourceRecordRef>,
-}
+use crate::refs::{HeaderRef, MessageRef, MsgOffset, NameRef, QuestionRef, ResourceRecordRef};
 
 /// Returns the wire length of a domain name starting at `offset` in `buf`.
 fn name_wire_length_at(buf: &[u8], offset: MsgOffset) -> Result<usize, Error> {
@@ -114,21 +102,24 @@ pub fn decode_message_ref(data: &[u8]) -> Result<MessageRef, Error> {
     let mut answer = Vec::with_capacity(an_count as usize);
     for _ in 0..an_count {
         let len = resource_record_wire_length_at(data, offset)? as MsgOffset;
-        answer.push(ResourceRecordRef::new(offset, len));
+        let name = NameRef::from_buf(data, offset)?;
+        answer.push(ResourceRecordRef::new(name, len));
         offset = offset.saturating_add(len);
     }
 
     let mut authority = Vec::with_capacity(ns_count as usize);
     for _ in 0..ns_count {
         let len = resource_record_wire_length_at(data, offset)? as MsgOffset;
-        authority.push(ResourceRecordRef::new(offset, len));
+        let name = NameRef::from_buf(data, offset)?;
+        authority.push(ResourceRecordRef::new(name, len));
         offset = offset.saturating_add(len);
     }
 
     let mut additional = Vec::with_capacity(ar_count as usize);
     for _ in 0..ar_count {
         let len = resource_record_wire_length_at(data, offset)? as MsgOffset;
-        additional.push(ResourceRecordRef::new(offset, len));
+        let name = NameRef::from_buf(data, offset)?;
+        additional.push(ResourceRecordRef::new(name, len));
         offset = offset.saturating_add(len);
     }
 
