@@ -1,7 +1,5 @@
 use dnsio::{decode_message, decode_message_ref};
-use iai_callgrind::{
-    library_benchmark, library_benchmark_group, main,
-};
+use iai_callgrind::{library_benchmark, library_benchmark_group, main};
 use std::hint::black_box;
 
 /// Minimal valid DNS query: example.com A IN
