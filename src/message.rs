@@ -1,11 +1,10 @@
 use crate::error::Error;
-use crate::header::{decode_header, encode_header, header_wire_length};
-use crate::question::{decode_question, encode_question, question_wire_length};
-use crate::resource_record::{
-    decode_resource_records, encode_resource_records, resource_records_wire_length,
-};
+use crate::header::{decode_header, encode_header};
+use crate::question::{decode_question, encode_question};
+use crate::resource_record::{decode_resource_records, encode_resource_records};
 
 use dns_message::Message;
+use dns_message::wire_length::message_wire_length;
 
 pub fn decode_message<'a>(data: &'a [u8]) -> Result<Message<'a>, Error> {
     let (header, header_index) = decode_header(&data)?;
@@ -30,17 +29,8 @@ pub fn decode_message<'a>(data: &'a [u8]) -> Result<Message<'a>, Error> {
     ))
 }
 
-pub fn message_wire_length<'a>(message: &Message<'a>) -> Result<usize, Error> {
-    let length = header_wire_length(&message.header);
-    let length = length + question_wire_length(&message.question);
-    let length = length + resource_records_wire_length(&message.answer);
-    let length = length + resource_records_wire_length(&message.authority);
-    let length = length + resource_records_wire_length(&message.additional);
-    Ok(length)
-}
-
 pub fn encode_message<'a>(message: &Message<'a>) -> Result<Vec<u8>, Error> {
-    let length = message_wire_length(message)?;
+    let length = message_wire_length(message);
     let mut data = Vec::with_capacity(length);
     data.resize(length, 0);
 

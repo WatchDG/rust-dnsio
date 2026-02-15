@@ -42,10 +42,6 @@ pub fn encode_header<'a>(header: &Header, buf: &'a mut [u8]) -> Result<(&'a [u8]
     Ok((&buf[0..12], 12))
 }
 
-pub fn header_wire_length(_header: &Header) -> usize {
-    12
-}
-
 pub fn decode_flags(data: &[u8]) -> Result<(Flags, usize), Error> {
     if data.len() < 2 {
         return Err(Error::InsufficientData);

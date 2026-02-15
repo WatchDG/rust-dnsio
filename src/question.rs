@@ -155,21 +155,3 @@ pub fn encode_question<'a>(
 
     Ok((&buf[..offset], offset))
 }
-
-pub fn name_wire_length(name: &[NameElement<'_>]) -> usize {
-    name.iter()
-        .map(|e| match e {
-            NameElement::Label(l) => 1 + l.data.len(),
-            NameElement::Pointer(_) => 2,
-            NameElement::Root => 1,
-            NameElement::Reserved => 0,
-        })
-        .sum()
-}
-
-pub fn question_wire_length(questions: &[Question<'_>]) -> usize {
-    questions
-        .iter()
-        .map(|q| name_wire_length(&q.q_name) + 4)
-        .sum()
-}

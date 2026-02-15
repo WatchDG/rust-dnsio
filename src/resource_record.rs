@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::question::{decode_name, name_wire_length};
+use crate::question::decode_name;
 use dns_message::resource_record::{RRClass, RRType, ResourceRecord};
 
 pub fn decode_resource_record<'a>(
@@ -114,11 +114,4 @@ pub fn encode_resource_records<'a>(
     }
 
     Ok((&buf[..offset], offset))
-}
-
-pub fn resource_records_wire_length(records: &[ResourceRecord<'_>]) -> usize {
-    records
-        .iter()
-        .map(|r| name_wire_length(&r.rr_name) + 10 + r.rr_data.len())
-        .sum()
 }
