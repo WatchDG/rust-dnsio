@@ -1,8 +1,8 @@
 use crate::error::Error;
-use crate::header::{calculate_header_length, decode_header, encode_header};
-use crate::question::{calculate_questions_length, decode_questions, encode_questions};
+use crate::header::{decode_header, encode_header, header_wire_length};
+use crate::question::{decode_question, encode_question, question_wire_length};
 use crate::resource_record::{
-    calculate_resource_records_length, decode_resource_records, encode_resource_records,
+    decode_resource_records, encode_resource_records, resource_records_wire_length,
 };
 
 use dns_message::Message;
@@ -12,7 +12,7 @@ pub fn decode_message<'a>(data: &'a [u8]) -> Result<Message<'a>, Error> {
     let mut offset = header_index;
 
     let (questions, questions_len) =
-        decode_questions(&data[offset..], data, offset, header.qd_count)?;
+        decode_question(&data[offset..], data, offset, header.qd_count)?;
     offset += questions_len;
 
     let (answers, answers_len) =
@@ -30,17 +30,17 @@ pub fn decode_message<'a>(data: &'a [u8]) -> Result<Message<'a>, Error> {
     ))
 }
 
-pub fn calculate_message_length<'a>(message: &Message<'a>) -> Result<usize, Error> {
-    let length = calculate_header_length(&message.header);
-    let length = length + calculate_questions_length(&message.question);
-    let length = length + calculate_resource_records_length(&message.answer);
-    let length = length + calculate_resource_records_length(&message.authority);
-    let length = length + calculate_resource_records_length(&message.additional);
+pub fn message_wire_length<'a>(message: &Message<'a>) -> Result<usize, Error> {
+    let length = header_wire_length(&message.header);
+    let length = length + question_wire_length(&message.question);
+    let length = length + resource_records_wire_length(&message.answer);
+    let length = length + resource_records_wire_length(&message.authority);
+    let length = length + resource_records_wire_length(&message.additional);
     Ok(length)
 }
 
 pub fn encode_message<'a>(message: &Message<'a>) -> Result<Vec<u8>, Error> {
-    let length = calculate_message_length(message)?;
+    let length = message_wire_length(message)?;
     let mut data = Vec::with_capacity(length);
     data.resize(length, 0);
 
@@ -49,7 +49,7 @@ pub fn encode_message<'a>(message: &Message<'a>) -> Result<Vec<u8>, Error> {
     let (_, header_len) = encode_header(&message.header, &mut data[offset..])?;
     offset += header_len;
 
-    let (_, questions_len) = encode_questions(&message.question, &mut data[offset..])?;
+    let (_, questions_len) = encode_question(&message.question, &mut data[offset..])?;
     offset += questions_len;
 
     let (_, answers_len) = encode_resource_records(&message.answer, &mut data[offset..])?;

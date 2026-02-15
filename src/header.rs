@@ -42,11 +42,11 @@ pub fn encode_header<'a>(header: &Header, buf: &'a mut [u8]) -> Result<(&'a [u8]
     Ok((&buf[0..12], 12))
 }
 
-pub fn calculate_header_length(_header: &Header) -> usize {
+pub fn header_wire_length(_header: &Header) -> usize {
     12
 }
 
-pub fn decode_header_flags(data: &[u8]) -> Result<(Flags, usize), Error> {
+pub fn decode_flags(data: &[u8]) -> Result<(Flags, usize), Error> {
     if data.len() < 2 {
         return Err(Error::InsufficientData);
     }
@@ -56,10 +56,7 @@ pub fn decode_header_flags(data: &[u8]) -> Result<(Flags, usize), Error> {
     Ok((flags, 2))
 }
 
-pub fn encode_header_flags<'a>(
-    flags: &Flags,
-    buf: &'a mut [u8],
-) -> Result<(&'a [u8], usize), Error> {
+pub fn encode_flags<'a>(flags: &Flags, buf: &'a mut [u8]) -> Result<(&'a [u8], usize), Error> {
     if buf.len() < 2 {
         return Err(Error::InsufficientData);
     }
@@ -71,6 +68,6 @@ pub fn encode_header_flags<'a>(
     Ok((&buf[0..2], 2))
 }
 
-pub fn calculate_header_flags_length(_flags: &Flags) -> usize {
+pub fn flags_wire_length(_flags: &Flags) -> usize {
     2
 }

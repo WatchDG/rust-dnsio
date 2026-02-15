@@ -116,7 +116,7 @@ pub fn encode_resource_records<'a>(
     Ok((&buf[..offset], offset))
 }
 
-pub fn calculate_resource_records_length(records: &[ResourceRecord<'_>]) -> usize {
+pub fn resource_records_wire_length(records: &[ResourceRecord<'_>]) -> usize {
     records
         .iter()
         .map(|r| name_wire_length(&r.rr_name) + 10 + r.rr_data.len())

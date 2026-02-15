@@ -2,7 +2,7 @@ use crate::error::Error;
 use dns_message::{Label, NameElement};
 use dns_message::{QClass, QType, Question};
 
-pub fn decode_questions<'a>(
+pub fn decode_question<'a>(
     data: &'a [u8],
     message_data: &'a [u8],
     message_offset: usize,
@@ -125,7 +125,7 @@ pub fn encode_name<'a>(
     Ok((&buf[..offset], offset))
 }
 
-pub fn encode_questions<'a>(
+pub fn encode_question<'a>(
     questions: &[Question<'a>],
     buf: &'a mut [u8],
 ) -> Result<(&'a [u8], usize), Error> {
@@ -167,7 +167,7 @@ pub fn name_wire_length(name: &[NameElement<'_>]) -> usize {
         .sum()
 }
 
-pub fn calculate_questions_length(questions: &[Question<'_>]) -> usize {
+pub fn question_wire_length(questions: &[Question<'_>]) -> usize {
     questions
         .iter()
         .map(|q| name_wire_length(&q.q_name) + 4)
