@@ -1,6 +1,6 @@
 use crate::error::Error;
-use crate::question::decode_name;
-use dns_message::resource_record::{RRClass, RRType, ResourceRecord, ResourceRecordNameKind};
+use crate::question::{decode_name, name_wire_length};
+use dns_message::resource_record::{RRClass, RRType, ResourceRecord};
 
 pub fn decode_resource_record<'a>(
     data: &'a [u8],
@@ -66,7 +66,7 @@ pub fn encode_resource_record<'a>(
 ) -> Result<(&'a [u8], usize), Error> {
     let mut offset = 0;
 
-    let (_, name_len) = crate::question::encode_name(record.rr_name, &mut buf[offset..])?;
+    let (_, name_len) = crate::question::encode_name(&record.rr_name, &mut buf[offset..])?;
     offset += name_len;
 
     if offset + 10 > buf.len() {
@@ -119,12 +119,6 @@ pub fn encode_resource_records<'a>(
 pub fn calculate_resource_records_length(records: &[ResourceRecord<'_>]) -> usize {
     records
         .iter()
-        .map(|r| {
-            let name_len = match r.rr_name.kind {
-                ResourceRecordNameKind::Inline(slice) => slice.len(),
-                ResourceRecordNameKind::Pointer(_) => 2,
-            };
-            name_len + 10 + r.rr_data.len()
-        })
+        .map(|r| name_wire_length(&r.rr_name) + 10 + r.rr_data.len())
         .sum()
 }

@@ -1,5 +1,5 @@
 use crate::error::Error;
-use dns_message::resource_record::{ResourceRecordName, ResourceRecordNameKind};
+use dns_message::{Label, NameElement};
 use dns_message::{QClass, QType, Question};
 
 pub fn decode_questions<'a>(
@@ -27,11 +27,7 @@ pub fn decode_questions<'a>(
         let q_class = QClass::from_question_bytes(data[offset + 2], data[offset + 3]);
         offset += 4;
 
-        let q_name_slice = match q_name.kind {
-            ResourceRecordNameKind::Inline(slice) => slice,
-            ResourceRecordNameKind::Pointer(_) => return Err(Error::InvalidDomainName),
-        };
-        let question = Question::new(q_name_slice, q_type, q_class);
+        let question = Question::new(q_name, q_type, q_class);
         questions.push(question);
     }
 
@@ -41,9 +37,9 @@ pub fn decode_questions<'a>(
 pub fn decode_name(
     data: &[u8],
     message_offset: usize,
-) -> Result<(ResourceRecordName<'_>, usize), Error> {
+) -> Result<(Vec<NameElement<'_>>, usize), Error> {
     let mut offset = 0;
-    let start_offset = message_offset;
+    let mut elements = Vec::new();
 
     loop {
         if message_offset + offset >= data.len() {
@@ -54,6 +50,7 @@ pub fn decode_name(
         offset += 1;
 
         if length == 0 {
+            elements.push(NameElement::Root);
             break;
         }
 
@@ -65,15 +62,16 @@ pub fn decode_name(
             let pointer_value = ((length as u16 & 0x3F) << 8) | second_byte;
             offset += 1;
 
-            let name = ResourceRecordName {
-                offset: start_offset as u16,
-                kind: ResourceRecordNameKind::Pointer(pointer_value),
-            };
-            return Ok((name, offset));
+            elements.push(NameElement::Pointer(pointer_value));
+            return Ok((elements, offset));
+        }
+
+        if length >= 64 {
+            elements.push(NameElement::Reserved);
+            continue;
         }
 
         if length > 63 {
-            println!("Invalid domain name length: {}", length);
             return Err(Error::InvalidDomainName);
         }
 
@@ -81,39 +79,50 @@ pub fn decode_name(
             return Err(Error::InsufficientData);
         }
 
+        let label_data = &data[message_offset + offset..message_offset + offset + length];
+        elements.push(NameElement::Label(Label::new(length as u8, label_data)));
         offset += length;
     }
 
-    let name_slice = &data[start_offset..message_offset + offset];
-    let name = ResourceRecordName {
-        offset: start_offset as u16,
-        kind: ResourceRecordNameKind::Inline(name_slice),
-    };
-    Ok((name, offset))
+    Ok((elements, offset))
 }
 
 pub fn encode_name<'a>(
-    name: ResourceRecordName<'a>,
+    name: &[NameElement<'a>],
     buf: &'a mut [u8],
 ) -> Result<(&'a [u8], usize), Error> {
-    let name_slice = match name.kind {
-        ResourceRecordNameKind::Inline(slice) => slice,
-        ResourceRecordNameKind::Pointer(_) => return Err(Error::InvalidDomainName),
-    };
-    if name_slice.is_empty() {
-        return Err(Error::InvalidDomainName);
+    let mut offset = 0;
+
+    for element in name {
+        match element {
+            NameElement::Label(label) => {
+                if buf.len() < offset + 1 + label.data.len() {
+                    return Err(Error::InsufficientData);
+                }
+                buf[offset] = label.length;
+                buf[offset + 1..offset + 1 + label.data.len()].copy_from_slice(label.data);
+                offset += 1 + label.data.len();
+            }
+            NameElement::Pointer(ptr) => {
+                if buf.len() < offset + 2 {
+                    return Err(Error::InsufficientData);
+                }
+                buf[offset] = 0xC0 | ((ptr >> 8) as u8);
+                buf[offset + 1] = (ptr & 0xFF) as u8;
+                offset += 2;
+            }
+            NameElement::Root => {
+                if buf.len() < offset + 1 {
+                    return Err(Error::InsufficientData);
+                }
+                buf[offset] = 0;
+                offset += 1;
+            }
+            NameElement::Reserved => return Err(Error::InvalidDomainName),
+        }
     }
 
-    if name_slice.last() != Some(&0) {
-        return Err(Error::InvalidDomainName);
-    }
-
-    if buf.len() < name_slice.len() {
-        return Err(Error::InsufficientData);
-    }
-
-    buf[..name_slice.len()].copy_from_slice(name_slice);
-    Ok((&buf[..name_slice.len()], name_slice.len()))
+    Ok((&buf[..offset], offset))
 }
 
 pub fn encode_questions<'a>(
@@ -127,11 +136,7 @@ pub fn encode_questions<'a>(
     let mut offset = 0;
 
     for question in questions {
-        let name = ResourceRecordName {
-            offset: 0,
-            kind: ResourceRecordNameKind::Inline(question.q_name),
-        };
-        let (_, name_len) = encode_name(name, &mut buf[offset..])?;
+        let (_, name_len) = encode_name(&question.q_name, &mut buf[offset..])?;
         offset += name_len;
 
         if offset + 4 > buf.len() {
@@ -151,6 +156,20 @@ pub fn encode_questions<'a>(
     Ok((&buf[..offset], offset))
 }
 
+pub fn name_wire_length(name: &[NameElement<'_>]) -> usize {
+    name.iter()
+        .map(|e| match e {
+            NameElement::Label(l) => 1 + l.data.len(),
+            NameElement::Pointer(_) => 2,
+            NameElement::Root => 1,
+            NameElement::Reserved => 0,
+        })
+        .sum()
+}
+
 pub fn calculate_questions_length(questions: &[Question<'_>]) -> usize {
-    questions.iter().map(|q| q.q_name.len() + 4).sum()
+    questions
+        .iter()
+        .map(|q| name_wire_length(&q.q_name) + 4)
+        .sum()
 }
