@@ -1,5 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use dnsio::{decode_message, decode_message_ref};
+use std::hint::black_box;
 
 /// Minimal valid DNS query: example.com A IN
 fn sample_dns_message() -> Vec<u8> {
@@ -53,10 +54,9 @@ fn bench_decode_message_via_ref(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    benches,
-    bench_decode_message_ref,
-    bench_decode_message,
-    bench_decode_message_via_ref
-);
+criterion_group! {
+    name = benches;
+    config = Criterion::default().sample_size(100);
+    targets = bench_decode_message_ref, bench_decode_message, bench_decode_message_via_ref
+}
 criterion_main!(benches);
