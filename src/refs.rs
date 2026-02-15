@@ -125,6 +125,7 @@ impl HeaderRef {
     }
 
     /// Decode the header from the full DNS message buffer.
+    #[inline]
     pub fn decode_header(&self, data: &[u8]) -> Result<dns_message::Header, crate::error::Error> {
         crate::decode::decode_header(data).map(|(header, _)| header)
     }
@@ -176,6 +177,7 @@ impl QuestionRef {
     }
 
     /// Decode the question from the full DNS message buffer.
+    #[inline]
     pub fn decode_question<'a>(
         &self,
         data: &'a [u8],
@@ -251,6 +253,7 @@ impl ResourceRecordRef {
     }
 
     /// Decode the resource record from the full DNS message buffer.
+    #[inline]
     pub fn decode_resource_record<'a>(
         &self,
         data: &'a [u8],
@@ -278,6 +281,7 @@ pub struct MessageRef {
 
 impl MessageRef {
     /// Decode the full message from the DNS message buffer.
+    #[inline]
     pub fn decode_message<'a>(
         &self,
         data: &'a [u8],
@@ -338,6 +342,7 @@ impl NameRef {
     }
 
     /// Parse a name from the buffer at the given offset.
+    #[inline]
     pub fn from_buf(buf: &[u8], offset: MsgOffset) -> Result<Self, crate::error::Error> {
         let (elements, count, end_offset) = parse_name_elements_into(buf, offset)?;
         Ok(Self::new(elements, count, end_offset))
@@ -362,6 +367,7 @@ impl NameRef {
 
 /// Parse name elements starting at `offset` in `buf` into fixed array.
 /// Returns (elements, count, end_offset). Max 10 elements.
+#[inline]
 fn parse_name_elements_into(
     buf: &[u8],
     offset: MsgOffset,
