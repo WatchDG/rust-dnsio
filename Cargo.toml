@@ -17,7 +17,12 @@ mt = "0.3"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
+iai-callgrind = "0.16"
 
 [[bench]]
 name = "decode"
+harness = false
+
+[[bench]]
+name = "decode_iai"
 harness = false
