@@ -1,8 +1,10 @@
+mod builder;
 mod decode;
 mod encode;
 mod error;
 mod refs;
 
+pub use builder::MessageBuilder;
 pub use decode::{
     decode_flags, decode_header, decode_message, decode_message_ref, decode_name, decode_question,
     decode_resource_record, decode_resource_records,

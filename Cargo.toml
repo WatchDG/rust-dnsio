@@ -11,20 +11,14 @@ categories = ["network-programming", "parsing"]
 readme = "README.md"
 
 [dependencies]
-# dns-message="0.1.2"
-dns-message= { git = "https://github.com/WatchDG/rust-dns-message.git", branch = "feature/next" }
+dns-message="0.2"
 mt = "0.3"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
-iai-callgrind = "0.16"
 
 [[bench]]
 name = "decode"
-harness = false
-
-[[bench]]
-name = "decode_iai"
 harness = false
 
 [profile.release]
