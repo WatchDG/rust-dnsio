@@ -447,6 +447,51 @@ fn parse_name_elements_into(
     Ok((elements, count, end_offset))
 }
 
+// -----------------------------------------------------------------------------
+// BuildFromRef trait for efficient encoding from refs
+// -----------------------------------------------------------------------------
+
+pub trait BuildFromRef {
+    fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error>;
+}
+
+impl BuildFromRef for NameRef {
+    fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+        let first_offset = self.offset() as usize;
+        let end_offset = self.end_offset as usize;
+        if end_offset > src.len() {
+            return Err(crate::error::Error::InsufficientData);
+        }
+        dst.extend_from_slice(&src[first_offset..end_offset]);
+        Ok(())
+    }
+}
+
+impl QuestionRef {
+    pub fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+        let qname_len = self.len.saturating_sub(4);
+        let qname_end = self.offset as usize + qname_len as usize;
+        if qname_end > src.len() {
+            return Err(crate::error::Error::InsufficientData);
+        }
+        dst.extend_from_slice(&src[self.offset as usize..qname_end]);
+        dst.extend_from_slice(&src[qname_end..qname_end + 4]);
+        Ok(())
+    }
+}
+
+impl ResourceRecordRef {
+    pub fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+        let rr_start = self.offset() as usize;
+        let rr_end = rr_start + self.len as usize;
+        if rr_end > src.len() {
+            return Err(crate::error::Error::InsufficientData);
+        }
+        dst.extend_from_slice(&src[rr_start..rr_end]);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,5 +526,43 @@ mod tests {
             NameElementRef::classify_first_byte(0x80),
             NameElementKind::Reserved
         );
+    }
+
+    #[test]
+    fn name_ref_encode_to() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+        ];
+        let name = NameRef::from_buf(&src, 0).unwrap();
+        let mut dst = Vec::new();
+        name.encode_to(&mut dst, &src).unwrap();
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn question_ref_encode_to() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+        ];
+        let q_ref = QuestionRef::new(0, 17);
+        let mut dst = Vec::new();
+        q_ref.encode_to(&mut dst, &src).unwrap();
+        assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn resource_record_ref_encode_to() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+        ];
+        let name = NameRef::from_buf(&src, 0).unwrap();
+        let rr_ref = ResourceRecordRef::new(name, 27);
+        let mut dst = Vec::new();
+        rr_ref.encode_to(&mut dst, &src).unwrap();
+        assert_eq!(dst, src);
     }
 }

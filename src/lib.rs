@@ -5,6 +5,7 @@ mod error;
 mod refs;
 
 pub use builder::MessageBuilder;
+pub use builder::MessageRefBuilder;
 pub use decode::{
     decode_flags, decode_header, decode_message, decode_message_ref, decode_name, decode_question,
     decode_resource_record, decode_resource_records,
@@ -14,4 +15,4 @@ pub use encode::{
     encode_resource_record, encode_resource_records,
 };
 pub use error::Error;
-pub use refs::MessageRef;
+pub use refs::{BuildFromRef, MessageRef};

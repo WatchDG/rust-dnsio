@@ -1,6 +1,7 @@
 use crate::decode::decode_message;
 use crate::encode::encode_header;
 use crate::error::Error;
+use crate::refs::{MessageRef, QuestionRef, ResourceRecordRef};
 use dns_message::header::{Flags, OpCode, RCode, RD};
 use dns_message::resource_record::{RRClass, RRType};
 use dns_message::{Message, QClass, QType};
@@ -308,5 +309,152 @@ mod tests {
             .unwrap();
         assert_eq!(message.question.len(), 1);
         assert_eq!(message.answer.len(), 1);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageRefBuilder {
+    id: Option<u16>,
+    flags: Option<Flags>,
+    questions: Vec<QuestionRef>,
+    answers: Vec<ResourceRecordRef>,
+    authority: Vec<ResourceRecordRef>,
+    additional: Vec<ResourceRecordRef>,
+}
+
+impl MessageRefBuilder {
+    pub fn from_ref(_ref: &MessageRef) -> Self {
+        Self {
+            id: None,
+            flags: None,
+            questions: Vec::new(),
+            answers: Vec::new(),
+            authority: Vec::new(),
+            additional: Vec::new(),
+        }
+    }
+
+    pub fn id(mut self, id: u16) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn flags(mut self, flags: Flags) -> Self {
+        self.flags = Some(flags);
+        self
+    }
+
+    pub fn question(mut self, q: QuestionRef) -> Self {
+        self.questions.push(q);
+        self
+    }
+
+    pub fn answer(mut self, r: ResourceRecordRef) -> Self {
+        self.answers.push(r);
+        self
+    }
+
+    pub fn authority(mut self, r: ResourceRecordRef) -> Self {
+        self.authority.push(r);
+        self
+    }
+
+    pub fn additional(mut self, r: ResourceRecordRef) -> Self {
+        self.additional.push(r);
+        self
+    }
+
+    pub fn build_to(
+        self,
+        dst: &mut Vec<u8>,
+        src: &[u8],
+        base_id: u16,
+        base_flags: Flags,
+    ) -> Result<(), Error> {
+        let id = self.id.unwrap_or(base_id);
+        let flags = self.flags.unwrap_or(base_flags);
+
+        let q_count = self.questions.len() as u16;
+        let an_count = self.answers.len() as u16;
+        let au_count = self.authority.len() as u16;
+        let ad_count = self.additional.len() as u16;
+
+        let header = dns_message::Header::new(
+            id,
+            flags,
+            q_count,
+            an_count,
+            au_count,
+            ad_count,
+        );
+
+        dst.resize(12, 0);
+        encode_header(&header, &mut dst[..12])?;
+
+        for q in &self.questions {
+            q.encode_to(dst, src)?;
+        }
+
+        for r in &self.answers {
+            r.encode_to(dst, src)?;
+        }
+
+        for r in &self.authority {
+            r.encode_to(dst, src)?;
+        }
+
+        for r in &self.additional {
+            r.encode_to(dst, src)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod message_ref_builder_tests {
+    use super::*;
+
+    fn sample_message_bytes() -> Vec<u8> {
+        vec![
+            0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+        ]
+    }
+
+    #[test]
+    fn message_ref_builder_id_override() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+        let base_flags = base_header.flags;
+
+        let mut dst = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .id(0xABCD)
+            .build_to(&mut dst, &bytes, base_header.id, base_flags)
+            .unwrap();
+
+        assert_eq!((dst[0], dst[1]), (0xAB, 0xCD));
+    }
+
+    #[test]
+    fn message_ref_builder_preserves_question() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+        let base_flags = base_header.flags;
+
+        let mut dst = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0])
+            .build_to(&mut dst, &bytes, base_header.id, base_flags)
+            .unwrap();
+
+        let question_bytes = &bytes[12..];
+        assert_eq!(&dst[12..], question_bytes);
     }
 }
