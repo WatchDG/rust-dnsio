@@ -510,6 +510,231 @@ impl ResourceRecordRef {
     }
 }
 
+// -----------------------------------------------------------------------------
+// DNS Compression Support
+// -----------------------------------------------------------------------------
+
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Default)]
+pub struct CompressionTable {
+    offsets: HashMap<Vec<u8>, MsgOffset>,
+}
+
+impl CompressionTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, name: &[u8], offset: MsgOffset) {
+        self.offsets.insert(name.to_vec(), offset);
+    }
+
+    pub fn get(&self, name: &[u8]) -> Option<MsgOffset> {
+        self.offsets.get(name).copied()
+    }
+
+    pub fn clear(&mut self) {
+        self.offsets.clear();
+    }
+}
+
+pub trait Compressible {
+    fn encode_with_compression(
+        &self,
+        dst: &mut Vec<u8>,
+        src: &[u8],
+        compression: &mut CompressionTable,
+        current_offset: usize,
+    ) -> Result<usize, crate::error::Error>;
+}
+
+impl Compressible for NameRef {
+    fn encode_with_compression(
+        &self,
+        dst: &mut Vec<u8>,
+        src: &[u8],
+        compression: &mut CompressionTable,
+        current_offset: usize,
+    ) -> Result<usize, crate::error::Error> {
+        let first_offset = self.offset() as usize;
+        let end_offset = self.end_offset as usize;
+
+        if end_offset > src.len() {
+            return Err(crate::error::Error::InsufficientData);
+        }
+
+        let name_bytes = &src[first_offset..end_offset];
+
+        if let Some(compressed_offset) = compression.get(name_bytes) {
+            dst.push(0xC0 | ((compressed_offset >> 8) as u8));
+            dst.push(compressed_offset as u8);
+            return Ok(2);
+        }
+
+        compression.insert(name_bytes, current_offset as MsgOffset);
+        dst.extend_from_slice(name_bytes);
+        Ok(name_bytes.len())
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Section Iterators
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Question,
+    Answer,
+    Authority,
+    Additional,
+}
+
+impl MessageRef {
+    pub fn section(&self, section: Section) -> SectionRef {
+        match section {
+            Section::Question => SectionRef::Question(&self.question),
+            Section::Answer => SectionRef::Answer(&self.answer),
+            Section::Authority => SectionRef::Authority(&self.authority),
+            Section::Additional => SectionRef::Additional(&self.additional),
+        }
+    }
+
+    pub fn copy_section_to(
+        &self,
+        dst: &mut Vec<u8>,
+        src: &[u8],
+        section: Section,
+    ) -> Result<usize, crate::error::Error> {
+        let sec = self.section(section);
+        let mut written = 0usize;
+        for item in sec.iter() {
+            item.encode_to(dst, src)?;
+            written += item.len() as usize;
+        }
+        Ok(written)
+    }
+
+    pub fn copy_section_to_slice(
+        &self,
+        dst: &mut [u8],
+        src: &[u8],
+        section: Section,
+    ) -> Result<usize, crate::error::Error> {
+        let sec = self.section(section);
+        let mut offset = 0;
+        for item in sec.iter() {
+            let len = item.len() as usize;
+            match item {
+                SectionItemRef::Question(q) => {
+                    let src_start = q.offset as usize;
+                    let src_end = src_start + len;
+                    if offset + len > dst.len() {
+                        return Err(crate::error::Error::InsufficientData);
+                    }
+                    dst[offset..offset + len].copy_from_slice(&src[src_start..src_end]);
+                    offset += len;
+                }
+                SectionItemRef::ResourceRecord(r) => {
+                    let src_start = r.offset() as usize;
+                    let src_end = src_start + len;
+                    if offset + len > dst.len() {
+                        return Err(crate::error::Error::InsufficientData);
+                    }
+                    dst[offset..offset + len].copy_from_slice(&src[src_start..src_end]);
+                    offset += len;
+                }
+            }
+        }
+        Ok(offset)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SectionRef<'a> {
+    Question(&'a QuestionSectionRef),
+    Answer(&'a ResourceRecordSectionRef),
+    Authority(&'a ResourceRecordSectionRef),
+    Additional(&'a ResourceRecordSectionRef),
+}
+
+impl<'a> SectionRef<'a> {
+    pub fn iter(&'a self) -> SectionIter<'a> {
+        SectionIter { section: self, consumed: 0 }
+    }
+
+    pub fn count(&self) -> usize {
+        match self {
+            SectionRef::Question(q) => q.count as usize,
+            SectionRef::Answer(r) | SectionRef::Authority(r) | SectionRef::Additional(r) => {
+                r.count as usize
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SectionIter<'a> {
+    section: &'a SectionRef<'a>,
+    consumed: usize,
+}
+
+impl<'a> Iterator for SectionIter<'a> {
+    type Item = SectionItemRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.section {
+            SectionRef::Question(ref_q) => {
+                if self.consumed >= ref_q.count as usize {
+                    return None;
+                }
+                let item = SectionItemRef::Question(&ref_q.questions[self.consumed]);
+                self.consumed += 1;
+                Some(item)
+            }
+            SectionRef::Answer(ref_rr)
+            | SectionRef::Authority(ref_rr)
+            | SectionRef::Additional(ref_rr) => {
+                if self.consumed >= ref_rr.count as usize {
+                    return None;
+                }
+                let item = SectionItemRef::ResourceRecord(&ref_rr.records[self.consumed]);
+                self.consumed += 1;
+                Some(item)
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.section.count() - self.consumed;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for SectionIter<'a> {}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SectionItemRef<'a> {
+    Question(&'a QuestionRef),
+    ResourceRecord(&'a ResourceRecordRef),
+}
+
+impl SectionItemRef<'_> {
+    pub fn len(&self) -> MsgOffset {
+        match self {
+            SectionItemRef::Question(q) => q.len,
+            SectionItemRef::ResourceRecord(r) => r.len,
+        }
+    }
+
+    pub fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+        match self {
+            SectionItemRef::Question(q) => q.encode_to(dst, src),
+            SectionItemRef::ResourceRecord(r) => r.encode_to(dst, src),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,5 +807,108 @@ mod tests {
         let mut dst = Vec::new();
         rr_ref.encode_to(&mut dst, &src).unwrap();
         assert_eq!(dst, src);
+    }
+
+    #[test]
+    fn compression_table_insert_and_get() {
+        let mut table = CompressionTable::new();
+        table.insert(b"example.com", 12);
+
+        assert_eq!(table.get(b"example.com"), Some(12));
+        assert_eq!(table.get(b"other.com"), None);
+    }
+
+    #[test]
+    fn compression_table_clear() {
+        let mut table = CompressionTable::new();
+        table.insert(b"example.com", 12);
+        table.clear();
+
+        assert_eq!(table.get(b"example.com"), None);
+    }
+
+    #[test]
+    fn section_iterator_question() {
+        let src: Vec<u8> = vec![
+            0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0x04, b'n', b's', b'1', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x02, 0x00, 0x01,
+        ];
+        let msg_ref = crate::decode::decode_message_ref(&src).unwrap();
+        let sec = msg_ref.section(Section::Question);
+
+        let items: Vec<_> = sec.iter().collect();
+        assert_eq!(items.len(), 2);
+        assert_eq!(sec.count(), 2);
+    }
+
+    #[test]
+    fn section_iterator_answer() {
+        let src: Vec<u8> = vec![
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x23,
+        ];
+        let msg_ref = crate::decode::decode_message_ref(&src).unwrap();
+        let sec = msg_ref.section(Section::Answer);
+
+        let items: Vec<_> = sec.iter().collect();
+        assert_eq!(items.len(), 2);
+        assert_eq!(sec.count(), 2);
+    }
+
+    #[test]
+    fn copy_section_to() {
+        let src: Vec<u8> = vec![
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+        ];
+        let msg_ref = crate::decode::decode_message_ref(&src).unwrap();
+
+        let mut dst = Vec::new();
+        let written = msg_ref.copy_section_to(&mut dst, &src, Section::Question).unwrap();
+        assert_eq!(written, 17);
+        assert_eq!(&dst[..17], &src[12..29]);
+
+        let mut dst = Vec::new();
+        let written = msg_ref.copy_section_to(&mut dst, &src, Section::Answer).unwrap();
+        assert_eq!(written, 27);
+    }
+
+    #[test]
+    fn name_compression_in_name_ref() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+        ];
+        let name = NameRef::from_buf(&src, 0).unwrap();
+        let mut compression = CompressionTable::new();
+        let mut dst = Vec::new();
+
+        name.encode_with_compression(&mut dst, &src, &mut compression, 0).unwrap();
+        assert_eq!(dst, src);
+
+        name.encode_with_compression(&mut dst, &src, &mut compression, 13).unwrap();
+        assert_eq!(dst.len(), 15);
+        assert_eq!(dst[13], 0xC0);
+        assert_eq!(dst[14], 0x00);
     }
 }

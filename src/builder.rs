@@ -1,7 +1,7 @@
 use crate::decode::decode_message;
 use crate::encode::encode_header;
 use crate::error::Error;
-use crate::refs::{MessageRef, QuestionRef, ResourceRecordRef};
+use crate::refs::{CompressionTable, MessageRef, QuestionRef, ResourceRecordRef};
 use dns_message::header::{Flags, OpCode, RCode, RD};
 use dns_message::resource_record::{RRClass, RRType};
 use dns_message::{Message, QClass, QType};
@@ -491,6 +491,123 @@ impl MessageRefBuilder {
 
         Ok(offset)
     }
+
+    pub fn build_to_with_compression(
+        self,
+        dst: &mut Vec<u8>,
+        src: &[u8],
+        base_id: u16,
+        base_flags: Flags,
+    ) -> Result<(), Error> {
+        let id = self.id.unwrap_or(base_id);
+        let flags = self.flags.unwrap_or(base_flags);
+
+        let q_count = self.questions.len() as u16;
+        let an_count = self.answers.len() as u16;
+        let au_count = self.authority.len() as u16;
+        let ad_count = self.additional.len() as u16;
+
+        let header = dns_message::Header::new(
+            id,
+            flags,
+            q_count,
+            an_count,
+            au_count,
+            ad_count,
+        );
+
+        dst.reserve(12);
+        dst.resize(12, 0);
+        encode_header(&header, &mut dst[..12])?;
+
+        let mut compression = CompressionTable::new();
+        let mut offset = 12;
+
+        for q in &self.questions {
+            let qname_len = q.len.saturating_sub(4) as usize;
+            let qname_end = q.offset as usize + qname_len;
+            let name_bytes = &src[q.offset as usize..qname_end];
+
+            if let Some(compressed_offset) = compression.get(name_bytes) {
+                dst.push(0xC0 | ((compressed_offset >> 8) as u8));
+                dst.push(compressed_offset as u8);
+            } else {
+                compression.insert(name_bytes, offset as u16);
+                dst.extend_from_slice(name_bytes);
+                offset += name_bytes.len();
+            }
+            dst.extend_from_slice(&src[qname_end..qname_end + 4]);
+            offset += 4;
+        }
+
+        for r in &self.answers {
+            let name_len = r.name.end_offset - r.name.offset();
+            let name_offset = r.name.offset() as usize;
+            let name_end = name_offset + name_len as usize;
+            let name_bytes = &src[name_offset..name_end];
+
+            if let Some(compressed_offset) = compression.get(name_bytes) {
+                dst.push(0xC0 | ((compressed_offset >> 8) as u8));
+                dst.push(compressed_offset as u8);
+                offset += 2;
+            } else {
+                compression.insert(name_bytes, offset as u16);
+                dst.extend_from_slice(name_bytes);
+                offset += name_len as usize;
+            }
+
+            let rr_start = r.offset() as usize;
+            let rr_end = rr_start + r.len as usize;
+            dst.extend_from_slice(&src[rr_start + name_len as usize..rr_end]);
+            offset += (r.len - name_len) as usize;
+        }
+
+        for r in &self.authority {
+            let name_len = r.name.end_offset - r.name.offset();
+            let name_offset = r.name.offset() as usize;
+            let name_end = name_offset + name_len as usize;
+            let name_bytes = &src[name_offset..name_end];
+
+            if let Some(compressed_offset) = compression.get(name_bytes) {
+                dst.push(0xC0 | ((compressed_offset >> 8) as u8));
+                dst.push(compressed_offset as u8);
+                offset += 2;
+            } else {
+                compression.insert(name_bytes, offset as u16);
+                dst.extend_from_slice(name_bytes);
+                offset += name_len as usize;
+            }
+
+            let rr_start = r.offset() as usize;
+            let rr_end = rr_start + r.len as usize;
+            dst.extend_from_slice(&src[rr_start + name_len as usize..rr_end]);
+            offset += (r.len - name_len) as usize;
+        }
+
+        for r in &self.additional {
+            let name_len = r.name.end_offset - r.name.offset();
+            let name_offset = r.name.offset() as usize;
+            let name_end = name_offset + name_len as usize;
+            let name_bytes = &src[name_offset..name_end];
+
+            if let Some(compressed_offset) = compression.get(name_bytes) {
+                dst.push(0xC0 | ((compressed_offset >> 8) as u8));
+                dst.push(compressed_offset as u8);
+                offset += 2;
+            } else {
+                compression.insert(name_bytes, offset as u16);
+                dst.extend_from_slice(name_bytes);
+                offset += name_len as usize;
+            }
+
+            let rr_start = r.offset() as usize;
+            let rr_end = rr_start + r.len as usize;
+            dst.extend_from_slice(&src[rr_start + name_len as usize..rr_end]);
+            offset += (r.len - name_len) as usize;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -588,5 +705,170 @@ mod message_ref_builder_tests {
 
         let result = builder.write_to_slice(&mut buf, &bytes, base_header.id, base_flags);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn message_ref_builder_empty_sections() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+
+        let mut dst = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .build_to(&mut dst, &bytes, base_header.id, base_header.flags)
+            .unwrap();
+
+        assert_eq!(dst.len(), 12);
+    }
+
+    #[test]
+    fn message_ref_builder_multiple_questions() {
+        let bytes = vec![
+            0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0x04, b'n', b's', b'1', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x02, 0x00, 0x01,
+        ];
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+
+        let mut dst = Vec::new();
+        let builder = MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0])
+            .question(msg_ref.question.questions[1]);
+        dst.reserve(builder.buffer_size());
+
+        builder.build_to(&mut dst, &bytes, base_header.id, base_header.flags).unwrap();
+
+        assert_eq!(dst.len(), bytes.len());
+        assert_eq!(dst[4..6], [0x00, 0x02]);
+    }
+
+    #[test]
+    fn message_ref_builder_reuses_buffer() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+
+        let builder = MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0]);
+        let size = builder.buffer_size();
+        let mut dst = vec![0xFFu8; 100];
+
+        builder.write_to_slice(&mut dst[..size], &bytes, base_header.id, base_header.flags)
+            .unwrap();
+
+        assert_eq!(&dst[12..size], &bytes[12..]);
+        assert_eq!(dst[size], 0xFF);
+    }
+
+    #[test]
+    fn buffer_size_with_empty_sections() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+
+        let builder = MessageRefBuilder::from_ref(&msg_ref);
+        assert_eq!(builder.buffer_size(), 12);
+
+        let builder = MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0]);
+        assert_eq!(builder.buffer_size(), bytes.len());
+    }
+
+    #[test]
+    fn message_ref_builder_roundtrip() {
+        let bytes = sample_dns_message_with_answer();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+
+        let mut dst = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0])
+            .answer(msg_ref.answer.records[0])
+            .build_to(&mut dst, &bytes, base_header.id, base_header.flags)
+            .unwrap();
+
+        let reparsed = crate::decode::decode_message_ref(&dst).unwrap();
+        assert_eq!(reparsed.question.count, 1);
+        assert_eq!(reparsed.answer.count, 1);
+    }
+
+    #[test]
+    fn message_ref_builder_with_compression() {
+        let bytes = sample_dns_message_with_answer();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+
+        let mut dst = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0])
+            .answer(msg_ref.answer.records[0])
+            .build_to_with_compression(&mut dst, &bytes, base_header.id, base_header.flags)
+            .unwrap();
+
+        let reparsed = crate::decode::decode_message_ref(&dst).unwrap();
+        assert_eq!(reparsed.question.count, 1);
+        assert_eq!(reparsed.answer.count, 1);
+
+        assert!(dst.len() < bytes.len());
+    }
+
+    #[test]
+    fn compression_reduces_size() {
+        let bytes = vec![
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x23,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x24,
+        ];
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+
+        let mut dst_no_compress = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0])
+            .answer(msg_ref.answer.records[0])
+            .answer(msg_ref.answer.records[1])
+            .answer(msg_ref.answer.records[2])
+            .build_to(&mut dst_no_compress, &bytes, base_header.id, base_header.flags)
+            .unwrap();
+
+        let mut dst_compress = Vec::new();
+        MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0])
+            .answer(msg_ref.answer.records[0])
+            .answer(msg_ref.answer.records[1])
+            .answer(msg_ref.answer.records[2])
+            .build_to_with_compression(&mut dst_compress, &bytes, base_header.id, base_header.flags)
+            .unwrap();
+
+        assert!(dst_compress.len() < dst_no_compress.len());
+        assert_eq!(dst_compress.len(), bytes.len() - 3 * 11);
+    }
+
+    fn sample_dns_message_with_answer() -> Vec<u8> {
+        vec![
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+        ]
     }
 }

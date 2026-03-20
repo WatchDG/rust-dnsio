@@ -15,4 +15,4 @@ pub use encode::{
     encode_resource_record, encode_resource_records,
 };
 pub use error::Error;
-pub use refs::{BuildFromRef, MessageRef};
+pub use refs::{BuildFromRef, Compressible, CompressionTable, MessageRef, Section, SectionItemRef, SectionRef};

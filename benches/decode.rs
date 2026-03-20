@@ -212,6 +212,303 @@ fn bench_message_ref_builder_write_to_slice(c: &mut Criterion) {
     });
 }
 
+fn bench_message_builder_aaaa(c: &mut Criterion) {
+    c.bench_function("message_builder_aaaa", |b| {
+        b.iter(|| {
+            let bytes = MessageBuilder::query(1)
+                .question("example.com", QType::AAAA, QClass::IN)
+                .build_encode_direct()
+                .unwrap();
+            black_box(bytes);
+        })
+    });
+}
+
+fn bench_message_ref_builder_aaaa(c: &mut Criterion) {
+    let data = vec![
+        0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x1c, 0x00, 0x01,
+    ];
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+
+    c.bench_function("message_ref_builder_aaaa", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .id(1)
+                .question(black_box(msg_ref.question.questions[0]))
+                .build_to(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_message_builder_multi_answer(c: &mut Criterion) {
+    c.bench_function("message_builder_multi_answer", |b| {
+        b.iter(|| {
+            let bytes = MessageBuilder::response(1)
+                .question("example.com", QType::A, QClass::IN)
+                .answer("example.com", dns_message::resource_record::RRType::A,
+                    dns_message::resource_record::RRClass::IN, 300, [1, 2, 3, 4])
+                .answer("example.com", dns_message::resource_record::RRType::A,
+                    dns_message::resource_record::RRClass::IN, 300, [5, 6, 7, 8])
+                .answer("example.com", dns_message::resource_record::RRType::A,
+                    dns_message::resource_record::RRClass::IN, 300, [9, 10, 11, 12])
+                .build_encode_direct()
+                .unwrap();
+            black_box(bytes);
+        })
+    });
+}
+
+fn bench_message_ref_builder_multi_answer(c: &mut Criterion) {
+    let data = vec![
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+        0x00, 0x04, 0x01, 0x02, 0x03, 0x04,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+        0x00, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+        0x00, 0x04, 0x09, 0x0a, 0x0b, 0x0c,
+    ];
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+
+    c.bench_function("message_ref_builder_multi_answer", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .id(header.id)
+                .flags(black_box(header.flags))
+                .question(black_box(msg_ref.question.questions[0]))
+                .answer(black_box(msg_ref.answer.records[0]))
+                .answer(black_box(msg_ref.answer.records[1]))
+                .answer(black_box(msg_ref.answer.records[2]))
+                .build_to(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_message_ref_builder_pre_reserve(c: &mut Criterion) {
+    let data = sample_dns_message_with_answer();
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+    let builder = MessageRefBuilder::from_ref(&msg_ref)
+        .id(header.id)
+        .flags(header.flags)
+        .question(msg_ref.question.questions[0])
+        .answer(msg_ref.answer.records[0]);
+    let size = builder.buffer_size();
+
+    c.bench_function("message_ref_builder_pre_reserve", |b| {
+        b.iter(|| {
+            let mut dst = Vec::with_capacity(black_box(size));
+            builder.clone()
+                .build_to(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_message_ref_builder_no_reserve(c: &mut Criterion) {
+    let data = sample_dns_message_with_answer();
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+    let builder = MessageRefBuilder::from_ref(&msg_ref)
+        .id(header.id)
+        .flags(header.flags)
+        .question(msg_ref.question.questions[0])
+        .answer(msg_ref.answer.records[0]);
+
+    c.bench_function("message_ref_builder_no_reserve", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            builder.clone()
+                .build_to(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_large_message(c: &mut Criterion) {
+    let mut data = vec![
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    ];
+    for i in 0..10 {
+        data.extend_from_slice(&[
+            0x07, b't', b'e', b's', b't', b'i', b'n', b'g', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
+            0x00, 0x04,
+            (i + 1) as u8, 0, 0, 0,
+        ]);
+    }
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+
+    c.bench_function("message_ref_builder_large", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .id(header.id)
+                .flags(black_box(header.flags))
+                .question(black_box(msg_ref.question.questions[0]))
+                .build_to(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_message_ref_builder_with_compression(c: &mut Criterion) {
+    let data = sample_dns_message_with_answer();
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+
+    c.bench_function("message_ref_builder_with_compression", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .id(header.id)
+                .flags(black_box(header.flags))
+                .question(black_box(msg_ref.question.questions[0]))
+                .answer(black_box(msg_ref.answer.records[0]))
+                .build_to_with_compression(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_multi_answer_with_compression(c: &mut Criterion) {
+    let data = vec![
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+        0x00, 0x04, 0x01, 0x02, 0x03, 0x04,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+        0x00, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+        0x00, 0x04, 0x09, 0x0a, 0x0b, 0x0c,
+    ];
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+
+    c.bench_function("message_ref_builder_multi_compression", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .id(header.id)
+                .flags(black_box(header.flags))
+                .question(black_box(msg_ref.question.questions[0]))
+                .answer(black_box(msg_ref.answer.records[0]))
+                .answer(black_box(msg_ref.answer.records[1]))
+                .answer(black_box(msg_ref.answer.records[2]))
+                .build_to_with_compression(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_section_copy(c: &mut Criterion) {
+    let data = sample_dns_message_with_answer();
+    let msg_ref = decode_message_ref(&data).unwrap();
+
+    c.bench_function("message_ref_copy_section_answer", |b| {
+        b.iter(|| {
+            let mut dst = Vec::new();
+            msg_ref.copy_section_to(black_box(&mut dst), black_box(&data), dnsio::Section::Answer)
+                .unwrap();
+            black_box(&dst);
+        })
+    });
+}
+
+fn bench_section_iterator(c: &mut Criterion) {
+    let data = sample_dns_message_with_answer();
+    let msg_ref = decode_message_ref(&data).unwrap();
+
+    c.bench_function("message_ref_section_iterator", |b| {
+        b.iter(|| {
+            let sec = msg_ref.section(black_box(dnsio::Section::Answer));
+            let count = sec.iter().count();
+            black_box(count);
+        })
+    });
+}
+
+fn bench_compression_table(c: &mut Criterion) {
+    let mut table = dnsio::CompressionTable::new();
+
+    c.bench_function("compression_table_insert", |b| {
+        table.clear();
+        b.iter(|| {
+            table.insert(b"example.com", 12);
+            black_box(&table);
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(100);
@@ -219,6 +516,11 @@ criterion_group! {
         bench_message_builder_build, bench_message_builder_build_encode_direct,
         bench_message_ref_builder_build_to, bench_message_builder_with_answer,
         bench_message_ref_builder_with_answer, bench_message_ref_builder_buffer_size,
-        bench_message_ref_builder_write_to_slice
+        bench_message_ref_builder_write_to_slice, bench_message_builder_aaaa,
+        bench_message_ref_builder_aaaa, bench_message_builder_multi_answer,
+        bench_message_ref_builder_multi_answer, bench_message_ref_builder_pre_reserve,
+        bench_message_ref_builder_no_reserve, bench_large_message,
+        bench_message_ref_builder_with_compression, bench_multi_answer_with_compression,
+        bench_section_copy, bench_section_iterator, bench_compression_table
 }
 criterion_main!(benches);
