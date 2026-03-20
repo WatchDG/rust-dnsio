@@ -364,6 +364,13 @@ impl MessageRefBuilder {
         self
     }
 
+    pub fn buffer_size(&self) -> usize {
+        12 + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
+            + self.answers.iter().map(|r| r.len as usize).sum::<usize>()
+            + self.authority.iter().map(|r| r.len as usize).sum::<usize>()
+            + self.additional.iter().map(|r| r.len as usize).sum::<usize>()
+    }
+
     pub fn build_to(
         self,
         dst: &mut Vec<u8>,
@@ -388,6 +395,12 @@ impl MessageRefBuilder {
             ad_count,
         );
 
+        let total_size = 12 + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
+            + self.answers.iter().map(|r| r.len as usize).sum::<usize>()
+            + self.authority.iter().map(|r| r.len as usize).sum::<usize>()
+            + self.additional.iter().map(|r| r.len as usize).sum::<usize>();
+
+        dst.reserve(total_size);
         dst.resize(12, 0);
         encode_header(&header, &mut dst[..12])?;
 
@@ -408,6 +421,75 @@ impl MessageRefBuilder {
         }
 
         Ok(())
+    }
+
+    pub fn write_to_slice(
+        self,
+        dst: &mut [u8],
+        src: &[u8],
+        base_id: u16,
+        base_flags: Flags,
+    ) -> Result<usize, Error> {
+        let id = self.id.unwrap_or(base_id);
+        let flags = self.flags.unwrap_or(base_flags);
+
+        let q_count = self.questions.len() as u16;
+        let an_count = self.answers.len() as u16;
+        let au_count = self.authority.len() as u16;
+        let ad_count = self.additional.len() as u16;
+
+        let total_size = 12 + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
+            + self.answers.iter().map(|r| r.len as usize).sum::<usize>()
+            + self.authority.iter().map(|r| r.len as usize).sum::<usize>()
+            + self.additional.iter().map(|r| r.len as usize).sum::<usize>();
+
+        if dst.len() < total_size {
+            return Err(Error::InsufficientData);
+        }
+
+        let header = dns_message::Header::new(
+            id,
+            flags,
+            q_count,
+            an_count,
+            au_count,
+            ad_count,
+        );
+
+        encode_header(&header, &mut dst[..12])?;
+        let mut offset = 12;
+
+        for q in &self.questions {
+            let qname_len = q.len.saturating_sub(4) as usize;
+            let qname_end = q.offset as usize + qname_len;
+            dst[offset..offset + qname_len].copy_from_slice(&src[q.offset as usize..qname_end]);
+            offset += qname_len;
+            dst[offset..offset + 4].copy_from_slice(&src[qname_end..qname_end + 4]);
+            offset += 4;
+        }
+
+        for r in &self.answers {
+            let rr_start = r.offset() as usize;
+            let rr_end = rr_start + r.len as usize;
+            dst[offset..offset + r.len as usize].copy_from_slice(&src[rr_start..rr_end]);
+            offset += r.len as usize;
+        }
+
+        for r in &self.authority {
+            let rr_start = r.offset() as usize;
+            let rr_end = rr_start + r.len as usize;
+            dst[offset..offset + r.len as usize].copy_from_slice(&src[rr_start..rr_end]);
+            offset += r.len as usize;
+        }
+
+        for r in &self.additional {
+            let rr_start = r.offset() as usize;
+            let rr_end = rr_start + r.len as usize;
+            dst[offset..offset + r.len as usize].copy_from_slice(&src[rr_start..rr_end]);
+            offset += r.len as usize;
+        }
+
+        Ok(offset)
     }
 }
 
@@ -456,5 +538,55 @@ mod message_ref_builder_tests {
 
         let question_bytes = &bytes[12..];
         assert_eq!(&dst[12..], question_bytes);
+    }
+
+    #[test]
+    fn buffer_size_calculation() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+
+        let builder = MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0]);
+
+        assert_eq!(builder.buffer_size(), bytes.len());
+    }
+
+    #[test]
+    fn write_to_slice_success() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+        let base_flags = base_header.flags;
+
+        let builder = MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0]);
+
+        let size = builder.buffer_size();
+        let mut buf = vec![0u8; size];
+
+        let written = builder
+            .write_to_slice(&mut buf, &bytes, base_header.id, base_flags)
+            .unwrap();
+
+        assert_eq!(written, size);
+        assert_eq!(&buf[12..], &bytes[12..]);
+    }
+
+    #[test]
+    fn write_to_slice_insufficient_buffer() {
+        let bytes = sample_message_bytes();
+        let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
+
+        let base_header = msg_ref.header.decode_header(&bytes).unwrap();
+        let base_flags = base_header.flags;
+
+        let builder = MessageRefBuilder::from_ref(&msg_ref)
+            .question(msg_ref.question.questions[0]);
+
+        let mut buf = vec![0u8; 10];
+
+        let result = builder.write_to_slice(&mut buf, &bytes, base_header.id, base_flags);
+        assert!(result.is_err());
     }
 }

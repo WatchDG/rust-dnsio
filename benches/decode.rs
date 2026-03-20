@@ -174,12 +174,51 @@ fn bench_message_ref_builder_with_answer(c: &mut Criterion) {
     });
 }
 
+fn bench_message_ref_builder_buffer_size(c: &mut Criterion) {
+    let data = sample_dns_message();
+    let msg_ref = decode_message_ref(&data).unwrap();
+
+    c.bench_function("message_ref_builder_buffer_size", |b| {
+        b.iter(|| {
+            let size = MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .question(black_box(msg_ref.question.questions[0]))
+                .buffer_size();
+            black_box(size);
+        })
+    });
+}
+
+fn bench_message_ref_builder_write_to_slice(c: &mut Criterion) {
+    let data = sample_dns_message();
+    let msg_ref = decode_message_ref(&data).unwrap();
+    let header = msg_ref.header.decode_header(&data).unwrap();
+    let size = 29;
+
+    c.bench_function("message_ref_builder_write_to_slice", |b| {
+        b.iter(|| {
+            let mut buf = vec![0u8; size];
+            let _written = MessageRefBuilder::from_ref(black_box(&msg_ref))
+                .id(1)
+                .question(black_box(msg_ref.question.questions[0]))
+                .write_to_slice(
+                    black_box(&mut buf),
+                    black_box(&data),
+                    black_box(header.id),
+                    black_box(header.flags),
+                )
+                .unwrap();
+            black_box(&buf);
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(100);
     targets = bench_decode_message_ref, bench_decode_message, bench_decode_message_via_ref,
         bench_message_builder_build, bench_message_builder_build_encode_direct,
         bench_message_ref_builder_build_to, bench_message_builder_with_answer,
-        bench_message_ref_builder_with_answer
+        bench_message_ref_builder_with_answer, bench_message_ref_builder_buffer_size,
+        bench_message_ref_builder_write_to_slice
 }
 criterion_main!(benches);

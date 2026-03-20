@@ -154,6 +154,15 @@ impl QuestionSectionRef {
     pub fn as_slice(&self) -> &[QuestionRef] {
         &self.questions[..self.count as usize]
     }
+
+    #[inline]
+    pub fn encoded_len(&self) -> usize {
+        let mut len = 0usize;
+        for q in self.as_slice() {
+            len += q.len as usize;
+        }
+        len
+    }
 }
 
 /// Reference to a question record.
@@ -214,6 +223,15 @@ impl ResourceRecordSectionRef {
     #[inline]
     pub fn as_slice(&self) -> &[ResourceRecordRef] {
         &self.records[..self.count as usize]
+    }
+
+    #[inline]
+    pub fn encoded_len(&self) -> usize {
+        let mut len = 0usize;
+        for r in self.as_slice() {
+            len += r.len as usize;
+        }
+        len
     }
 }
 
