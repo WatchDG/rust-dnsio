@@ -509,6 +509,50 @@ fn bench_compression_table(c: &mut Criterion) {
     });
 }
 
+fn bench_zero_copy_name_bytes(c: &mut Criterion) {
+    let data = vec![
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        0x03, b'c', b'o', b'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+    ];
+    let msg_ref = dnsio::decode_message_ref(&data).unwrap();
+
+    c.bench_function("zero_copy_name_as_bytes", |b| {
+        b.iter(|| {
+            let name_offset = msg_ref.question.questions[0].offset;
+            let bytes = &data[name_offset as usize..name_offset as usize + 13];
+            black_box(bytes);
+        })
+    });
+}
+
+fn bench_zero_copy_rdata_bytes(c: &mut Criterion) {
+    let data = sample_dns_message_with_answer();
+    let msg_ref = decode_message_ref(&data).unwrap();
+
+    c.bench_function("zero_copy_rdata_bytes", |b| {
+        b.iter(|| {
+            let rr = msg_ref.answer.records[0];
+            let bytes = rr.as_bytes(black_box(&data));
+            black_box(bytes);
+        })
+    });
+}
+
+fn bench_dst_trait_write(c: &mut Criterion) {
+    use dnsio::Dst;
+    let mut vec = Vec::new();
+
+    c.bench_function("dst_trait_write", |b| {
+        vec.clear();
+        b.iter(|| {
+            vec.write(b"example.com");
+            black_box(&vec);
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(100);
@@ -521,6 +565,7 @@ criterion_group! {
         bench_message_ref_builder_multi_answer, bench_message_ref_builder_pre_reserve,
         bench_message_ref_builder_no_reserve, bench_large_message,
         bench_message_ref_builder_with_compression, bench_multi_answer_with_compression,
-        bench_section_copy, bench_section_iterator, bench_compression_table
+        bench_section_copy, bench_section_iterator, bench_compression_table,
+        bench_zero_copy_name_bytes, bench_zero_copy_rdata_bytes, bench_dst_trait_write
 }
 criterion_main!(benches);

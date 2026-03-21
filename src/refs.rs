@@ -199,6 +199,20 @@ impl QuestionRef {
         )?;
         Ok(questions.into_iter().next().unwrap())
     }
+
+    /// Zero-copy: returns raw bytes of this question from source buffer.
+    #[inline]
+    pub fn as_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let end = (self.offset + self.len) as usize;
+        &buf[self.offset as usize..end]
+    }
+
+    /// Zero-copy: returns QNAME bytes (without QTYPE/QCLASS).
+    #[inline]
+    pub fn qname_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let qname_len = (self.len - 4) as usize;
+        &buf[self.offset as usize..self.offset as usize + qname_len]
+    }
 }
 
 /// Reference to a resource record section (up to 10 records).
@@ -282,6 +296,34 @@ impl ResourceRecordRef {
             self.offset() as usize,
         )?;
         Ok(record)
+    }
+
+    /// Zero-copy: returns raw bytes of this resource record from source buffer.
+    #[inline]
+    pub fn as_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset() as usize;
+        let end = start + self.len as usize;
+        &buf[start..end]
+    }
+
+    /// Zero-copy: returns RDATA bytes only.
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let name_len = if self.len >= 10 {
+            let type_offset = self.name.offset() as usize + 2;
+            if type_offset < buf.len().saturating_sub(6) {
+                let rdlength = u16::from_be_bytes([buf[type_offset + 4], buf[type_offset + 5]]) as usize;
+                (self.len as usize).saturating_sub(10).saturating_sub(rdlength)
+            } else {
+                (self.name.end_offset - self.name.offset()) as usize
+            }
+        } else {
+            (self.name.end_offset - self.name.offset()) as usize
+        };
+        let rr_start = self.offset() as usize;
+        let rdata_start = rr_start + name_len + 10;
+        let rdata_len = (self.len as usize).saturating_sub(name_len + 10);
+        &buf[rdata_start..rdata_start + rdata_len]
     }
 }
 
@@ -381,6 +423,14 @@ impl NameRef {
     pub fn as_slice(&self) -> &[NameElementRef] {
         &self.elements[..self.count as usize]
     }
+
+    /// Zero-copy: returns raw bytes of this name from source buffer.
+    #[inline]
+    pub fn as_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset() as usize;
+        let end = self.end_offset as usize;
+        &buf[start..end]
+    }
 }
 
 /// Parse name elements starting at `offset` in `buf` into fixed array.
@@ -470,42 +520,65 @@ fn parse_name_elements_into(
 // -----------------------------------------------------------------------------
 
 pub trait BuildFromRef {
-    fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error>;
+    fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error>;
+}
+
+pub trait Dst {
+    fn write(&mut self, bytes: &[u8]);
+    fn len(&self) -> usize;
+    fn extend(&mut self, len: usize);
+}
+
+impl Dst for Vec<u8> {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.extend_from_slice(bytes);
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    #[inline]
+    fn extend(&mut self, len: usize) {
+        self.resize(self.len() + len, 0);
+    }
 }
 
 impl BuildFromRef for NameRef {
-    fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+    fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error> {
         let first_offset = self.offset() as usize;
         let end_offset = self.end_offset as usize;
         if end_offset > src.len() {
             return Err(crate::error::Error::InsufficientData);
         }
-        dst.extend_from_slice(&src[first_offset..end_offset]);
+        dst.write(&src[first_offset..end_offset]);
         Ok(())
     }
 }
 
 impl QuestionRef {
-    pub fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+    pub fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error> {
         let qname_len = self.len.saturating_sub(4);
         let qname_end = self.offset as usize + qname_len as usize;
         if qname_end > src.len() {
             return Err(crate::error::Error::InsufficientData);
         }
-        dst.extend_from_slice(&src[self.offset as usize..qname_end]);
-        dst.extend_from_slice(&src[qname_end..qname_end + 4]);
+        dst.write(&src[self.offset as usize..qname_end]);
+        dst.write(&src[qname_end..qname_end + 4]);
         Ok(())
     }
 }
 
 impl ResourceRecordRef {
-    pub fn encode_to(&self, dst: &mut Vec<u8>, src: &[u8]) -> Result<(), crate::error::Error> {
+    pub fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error> {
         let rr_start = self.offset() as usize;
         let rr_end = rr_start + self.len as usize;
         if rr_end > src.len() {
             return Err(crate::error::Error::InsufficientData);
         }
-        dst.extend_from_slice(&src[rr_start..rr_end]);
+        dst.write(&src[rr_start..rr_end]);
         Ok(())
     }
 }
@@ -910,5 +983,52 @@ mod tests {
         assert_eq!(dst.len(), 15);
         assert_eq!(dst[13], 0xC0);
         assert_eq!(dst[14], 0x00);
+    }
+
+    #[test]
+    fn name_ref_zero_copy_bytes() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00,
+        ];
+        let name = NameRef::from_buf(&src, 0).unwrap();
+        let bytes = name.as_bytes(&src);
+        assert_eq!(bytes, &src[..]);
+    }
+
+    #[test]
+    fn question_ref_zero_copy_bytes() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+        ];
+        let q_ref = QuestionRef::new(0, 17);
+        let bytes = q_ref.as_bytes(&src);
+        assert_eq!(bytes, &src[..17]);
+
+        let qname = q_ref.qname_bytes(&src);
+        assert_eq!(qname, &src[..13]);
+    }
+
+    #[test]
+    fn resource_record_ref_zero_copy_bytes() {
+        let src: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+        ];
+        let name = NameRef::from_buf(&src, 0).unwrap();
+        let rr_ref = ResourceRecordRef::new(name, src.len() as u16);
+
+        let bytes = rr_ref.as_bytes(&src);
+        assert_eq!(bytes, &src[..]);
+    }
+
+    #[test]
+    fn dst_trait_for_vec() {
+        use crate::refs::Dst;
+        let mut vec = Vec::new();
+        vec.write(&[1, 2, 3]);
+        assert_eq!(vec, &[1, 2, 3]);
     }
 }
