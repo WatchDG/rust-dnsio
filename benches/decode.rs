@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use dnsio::{decode_message, decode_message_ref, MessageBuilder, MessageRefBuilder};
 use dns_message::{QClass, QType};
+use dnsio::{MessageBuilder, MessageRefBuilder, decode_message, decode_message_ref};
 use std::hint::black_box;
 
 /// Minimal valid DNS query: example.com A IN
@@ -31,15 +31,10 @@ fn sample_dns_message_with_answer() -> Vec<u8> {
         0x00, 0x00, // NSCOUNT=0
         0x00, 0x00, // ARCOUNT=0
         // QNAME: example.com
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm',
-        0x00,
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
         // QTYPE=A, QCLASS=IN
-        0x00, 0x01, 0x00, 0x01,
-        // ANCOUNT=1, NAME=example.com
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm',
-        0x00,
+        0x00, 0x01, 0x00, 0x01, // ANCOUNT=1, NAME=example.com
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
         // TYPE=A, CLASS=IN, TTL=3600
         0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
         // RDLENGTH=4, RDATA=93.184.216.34
@@ -226,10 +221,8 @@ fn bench_message_builder_aaaa(c: &mut Criterion) {
 
 fn bench_message_ref_builder_aaaa(c: &mut Criterion) {
     let data = vec![
-        0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x1c, 0x00, 0x01,
+        0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e', b'x',
+        b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x1c, 0x00, 0x01,
     ];
     let msg_ref = decode_message_ref(&data).unwrap();
     let header = msg_ref.header.decode_header(&data).unwrap();
@@ -257,12 +250,27 @@ fn bench_message_builder_multi_answer(c: &mut Criterion) {
         b.iter(|| {
             let bytes = MessageBuilder::response(1)
                 .question("example.com", QType::A, QClass::IN)
-                .answer("example.com", dns_message::resource_record::RRType::A,
-                    dns_message::resource_record::RRClass::IN, 300, [1, 2, 3, 4])
-                .answer("example.com", dns_message::resource_record::RRType::A,
-                    dns_message::resource_record::RRClass::IN, 300, [5, 6, 7, 8])
-                .answer("example.com", dns_message::resource_record::RRType::A,
-                    dns_message::resource_record::RRClass::IN, 300, [9, 10, 11, 12])
+                .answer(
+                    "example.com",
+                    dns_message::resource_record::RRType::A,
+                    dns_message::resource_record::RRClass::IN,
+                    300,
+                    [1, 2, 3, 4],
+                )
+                .answer(
+                    "example.com",
+                    dns_message::resource_record::RRType::A,
+                    dns_message::resource_record::RRClass::IN,
+                    300,
+                    [5, 6, 7, 8],
+                )
+                .answer(
+                    "example.com",
+                    dns_message::resource_record::RRType::A,
+                    dns_message::resource_record::RRClass::IN,
+                    300,
+                    [9, 10, 11, 12],
+                )
                 .build_encode_direct()
                 .unwrap();
             black_box(bytes);
@@ -272,22 +280,14 @@ fn bench_message_builder_multi_answer(c: &mut Criterion) {
 
 fn bench_message_ref_builder_multi_answer(c: &mut Criterion) {
     let data = vec![
-        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
-        0x00, 0x04, 0x01, 0x02, 0x03, 0x04,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
-        0x00, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
-        0x00, 0x04, 0x09, 0x0a, 0x0b, 0x0c,
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x07, b'e', b'x',
+        b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01, 0x07,
+        b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+        0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04, 0x07, b'e', b'x', b'a',
+        b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x01, 0x2c, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x07, b'e', b'x', b'a', b'm', b'p', b'l',
+        b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00,
+        0x04, 0x09, 0x0a, 0x0b, 0x0c,
     ];
     let msg_ref = decode_message_ref(&data).unwrap();
     let header = msg_ref.header.decode_header(&data).unwrap();
@@ -328,7 +328,8 @@ fn bench_message_ref_builder_pre_reserve(c: &mut Criterion) {
     c.bench_function("message_ref_builder_pre_reserve", |b| {
         b.iter(|| {
             let mut dst = Vec::with_capacity(black_box(size));
-            builder.clone()
+            builder
+                .clone()
                 .build_to(
                     black_box(&mut dst),
                     black_box(&data),
@@ -354,7 +355,8 @@ fn bench_message_ref_builder_no_reserve(c: &mut Criterion) {
     c.bench_function("message_ref_builder_no_reserve", |b| {
         b.iter(|| {
             let mut dst = Vec::new();
-            builder.clone()
+            builder
+                .clone()
                 .build_to(
                     black_box(&mut dst),
                     black_box(&data),
@@ -373,10 +375,33 @@ fn bench_large_message(c: &mut Criterion) {
     ];
     for i in 0..10 {
         data.extend_from_slice(&[
-            0x07, b't', b'e', b's', b't', b'i', b'n', b'g', 0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04,
-            (i + 1) as u8, 0, 0, 0,
+            0x07,
+            b't',
+            b'e',
+            b's',
+            b't',
+            b'i',
+            b'n',
+            b'g',
+            0x03,
+            b'c',
+            b'o',
+            b'm',
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x0e,
+            0x10,
+            0x00,
+            0x04,
+            (i + 1) as u8,
+            0,
+            0,
+            0,
         ]);
     }
     let msg_ref = decode_message_ref(&data).unwrap();
@@ -428,22 +453,14 @@ fn bench_message_ref_builder_with_compression(c: &mut Criterion) {
 
 fn bench_multi_answer_with_compression(c: &mut Criterion) {
     let data = vec![
-        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
-        0x00, 0x04, 0x01, 0x02, 0x03, 0x04,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
-        0x00, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
-        0x00, 0x04, 0x09, 0x0a, 0x0b, 0x0c,
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x07, b'e', b'x',
+        b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01, 0x07,
+        b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+        0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04, 0x07, b'e', b'x', b'a',
+        b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x01, 0x2c, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x07, b'e', b'x', b'a', b'm', b'p', b'l',
+        b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00,
+        0x04, 0x09, 0x0a, 0x0b, 0x0c,
     ];
     let msg_ref = decode_message_ref(&data).unwrap();
     let header = msg_ref.header.decode_header(&data).unwrap();
@@ -477,7 +494,12 @@ fn bench_section_copy(c: &mut Criterion) {
     c.bench_function("message_ref_copy_section_answer", |b| {
         b.iter(|| {
             let mut dst = Vec::new();
-            msg_ref.copy_section_to(black_box(&mut dst), black_box(&data), dnsio::Section::Answer)
+            msg_ref
+                .copy_section_to(
+                    black_box(&mut dst),
+                    black_box(&data),
+                    dnsio::Section::Answer,
+                )
                 .unwrap();
             black_box(&dst);
         })
@@ -511,10 +533,8 @@ fn bench_compression_table(c: &mut Criterion) {
 
 fn bench_zero_copy_name_bytes(c: &mut Criterion) {
     let data = vec![
-        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, 0x00, 0x01,
+        0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e', b'x',
+        b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
     ];
     let msg_ref = dnsio::decode_message_ref(&data).unwrap();
 

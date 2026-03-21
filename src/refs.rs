@@ -312,8 +312,11 @@ impl ResourceRecordRef {
         let name_len = if self.len >= 10 {
             let type_offset = self.name.offset() as usize + 2;
             if type_offset < buf.len().saturating_sub(6) {
-                let rdlength = u16::from_be_bytes([buf[type_offset + 4], buf[type_offset + 5]]) as usize;
-                (self.len as usize).saturating_sub(10).saturating_sub(rdlength)
+                let rdlength =
+                    u16::from_be_bytes([buf[type_offset + 4], buf[type_offset + 5]]) as usize;
+                (self.len as usize)
+                    .saturating_sub(10)
+                    .saturating_sub(rdlength)
             } else {
                 (self.name.end_offset - self.name.offset()) as usize
             }
@@ -520,7 +523,11 @@ fn parse_name_elements_into(
 // -----------------------------------------------------------------------------
 
 pub trait BuildFromRef {
-    fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error>;
+    fn encode_to<D: Dst + ?Sized>(
+        &self,
+        dst: &mut D,
+        src: &[u8],
+    ) -> Result<(), crate::error::Error>;
 }
 
 pub trait Dst {
@@ -547,7 +554,11 @@ impl Dst for Vec<u8> {
 }
 
 impl BuildFromRef for NameRef {
-    fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error> {
+    fn encode_to<D: Dst + ?Sized>(
+        &self,
+        dst: &mut D,
+        src: &[u8],
+    ) -> Result<(), crate::error::Error> {
         let first_offset = self.offset() as usize;
         let end_offset = self.end_offset as usize;
         if end_offset > src.len() {
@@ -559,7 +570,11 @@ impl BuildFromRef for NameRef {
 }
 
 impl QuestionRef {
-    pub fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error> {
+    pub fn encode_to<D: Dst + ?Sized>(
+        &self,
+        dst: &mut D,
+        src: &[u8],
+    ) -> Result<(), crate::error::Error> {
         let qname_len = self.len.saturating_sub(4);
         let qname_end = self.offset as usize + qname_len as usize;
         if qname_end > src.len() {
@@ -572,7 +587,11 @@ impl QuestionRef {
 }
 
 impl ResourceRecordRef {
-    pub fn encode_to<D: Dst + ?Sized>(&self, dst: &mut D, src: &[u8]) -> Result<(), crate::error::Error> {
+    pub fn encode_to<D: Dst + ?Sized>(
+        &self,
+        dst: &mut D,
+        src: &[u8],
+    ) -> Result<(), crate::error::Error> {
         let rr_start = self.offset() as usize;
         let rr_end = rr_start + self.len as usize;
         if rr_end > src.len() {
@@ -733,7 +752,10 @@ pub enum SectionRef<'a> {
 
 impl<'a> SectionRef<'a> {
     pub fn iter(&'a self) -> SectionIter<'a> {
-        SectionIter { section: self, consumed: 0 }
+        SectionIter {
+            section: self,
+            consumed: 0,
+        }
     }
 
     pub fn count(&self) -> usize {
@@ -808,6 +830,178 @@ impl SectionItemRef<'_> {
     }
 }
 
+// -----------------------------------------------------------------------------
+// DNSSEC Reference Types
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DnsKeyRef {
+    pub offset: MsgOffset,
+    pub rd_length: u16,
+}
+
+impl DnsKeyRef {
+    #[inline]
+    pub fn new(offset: MsgOffset, rd_length: u16) -> Self {
+        Self { offset, rd_length }
+    }
+
+    #[inline]
+    pub fn decode<'a>(
+        &self,
+        buf: &'a [u8],
+    ) -> Result<dns_message::dnssec::DnskeyRdata<'a>, crate::error::Error> {
+        crate::decode::decode_dnskey(buf, self.offset as usize, self.rd_length)
+    }
+
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset as usize;
+        let end = start + self.rd_length as usize;
+        &buf[start..end]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RrsigRef {
+    pub offset: MsgOffset,
+    pub rd_length: u16,
+}
+
+impl RrsigRef {
+    #[inline]
+    pub fn new(offset: MsgOffset, rd_length: u16) -> Self {
+        Self { offset, rd_length }
+    }
+
+    #[inline]
+    pub fn decode<'a>(
+        &self,
+        buf: &'a [u8],
+    ) -> Result<dns_message::dnssec::RrsigRdata<'a>, crate::error::Error> {
+        crate::decode::decode_rrsig(buf, self.offset as usize, self.rd_length)
+    }
+
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset as usize;
+        let end = start + self.rd_length as usize;
+        &buf[start..end]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DsRef {
+    pub offset: MsgOffset,
+    pub rd_length: u16,
+}
+
+impl DsRef {
+    #[inline]
+    pub fn new(offset: MsgOffset, rd_length: u16) -> Self {
+        Self { offset, rd_length }
+    }
+
+    #[inline]
+    pub fn decode<'a>(
+        &self,
+        buf: &'a [u8],
+    ) -> Result<dns_message::dnssec::DsRdata<'a>, crate::error::Error> {
+        crate::decode::decode_ds(buf, self.offset as usize, self.rd_length)
+    }
+
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset as usize;
+        let end = start + self.rd_length as usize;
+        &buf[start..end]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NsecRef {
+    pub offset: MsgOffset,
+    pub rd_length: u16,
+}
+
+impl NsecRef {
+    #[inline]
+    pub fn new(offset: MsgOffset, rd_length: u16) -> Self {
+        Self { offset, rd_length }
+    }
+
+    #[inline]
+    pub fn decode<'a>(
+        &self,
+        buf: &'a [u8],
+    ) -> Result<dns_message::dnssec::NsecRdata<'a>, crate::error::Error> {
+        crate::decode::decode_nsec(buf, self.offset as usize, self.rd_length)
+    }
+
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset as usize;
+        let end = start + self.rd_length as usize;
+        &buf[start..end]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Nsec3Ref {
+    pub offset: MsgOffset,
+    pub rd_length: u16,
+}
+
+impl Nsec3Ref {
+    #[inline]
+    pub fn new(offset: MsgOffset, rd_length: u16) -> Self {
+        Self { offset, rd_length }
+    }
+
+    #[inline]
+    pub fn decode<'a>(
+        &self,
+        buf: &'a [u8],
+    ) -> Result<dns_message::dnssec::Nsec3Rdata<'a>, crate::error::Error> {
+        crate::decode::decode_nsec3(buf, self.offset as usize, self.rd_length)
+    }
+
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset as usize;
+        let end = start + self.rd_length as usize;
+        &buf[start..end]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Nsec3ParamRef {
+    pub offset: MsgOffset,
+    pub rd_length: u16,
+}
+
+impl Nsec3ParamRef {
+    #[inline]
+    pub fn new(offset: MsgOffset, rd_length: u16) -> Self {
+        Self { offset, rd_length }
+    }
+
+    #[inline]
+    pub fn decode<'a>(
+        &self,
+        buf: &'a [u8],
+    ) -> Result<dns_message::dnssec::Nsec3paramRdata<'a>, crate::error::Error> {
+        crate::decode::decode_nsec3param(buf, self.offset as usize, self.rd_length)
+    }
+
+    #[inline]
+    pub fn rdata_bytes<'a>(&self, buf: &'a [u8]) -> &'a [u8] {
+        let start = self.offset as usize;
+        let end = start + self.rd_length as usize;
+        &buf[start..end]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -847,8 +1041,7 @@ mod tests {
     #[test]
     fn name_ref_encode_to() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
         ];
         let name = NameRef::from_buf(&src, 0).unwrap();
         let mut dst = Vec::new();
@@ -859,8 +1052,8 @@ mod tests {
     #[test]
     fn question_ref_encode_to() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+            0x01, 0x00, 0x01,
         ];
         let q_ref = QuestionRef::new(0, 17);
         let mut dst = Vec::new();
@@ -871,9 +1064,8 @@ mod tests {
     #[test]
     fn resource_record_ref_encode_to() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
-            0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+            0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
         ];
         let name = NameRef::from_buf(&src, 0).unwrap();
         let rr_ref = ResourceRecordRef::new(name, 27);
@@ -903,12 +1095,9 @@ mod tests {
     #[test]
     fn section_iterator_question() {
         let src: Vec<u8> = vec![
-            0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x04, b'n', b's', b'1', 0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x02, 0x00, 0x01,
+            0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x04, b'n', b's', b'1', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x02, 0x00, 0x01,
         ];
         let msg_ref = crate::decode::decode_message_ref(&src).unwrap();
         let sec = msg_ref.section(Section::Question);
@@ -921,18 +1110,12 @@ mod tests {
     #[test]
     fn section_iterator_answer() {
         let src: Vec<u8> = vec![
-            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x23,
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+            0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x23,
         ];
         let msg_ref = crate::decode::decode_message_ref(&src).unwrap();
         let sec = msg_ref.section(Section::Answer);
@@ -945,41 +1128,42 @@ mod tests {
     #[test]
     fn copy_section_to() {
         let src: Vec<u8> = vec![
-            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
         ];
         let msg_ref = crate::decode::decode_message_ref(&src).unwrap();
 
         let mut dst = Vec::new();
-        let written = msg_ref.copy_section_to(&mut dst, &src, Section::Question).unwrap();
+        let written = msg_ref
+            .copy_section_to(&mut dst, &src, Section::Question)
+            .unwrap();
         assert_eq!(written, 17);
         assert_eq!(&dst[..17], &src[12..29]);
 
         let mut dst = Vec::new();
-        let written = msg_ref.copy_section_to(&mut dst, &src, Section::Answer).unwrap();
+        let written = msg_ref
+            .copy_section_to(&mut dst, &src, Section::Answer)
+            .unwrap();
         assert_eq!(written, 27);
     }
 
     #[test]
     fn name_compression_in_name_ref() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
         ];
         let name = NameRef::from_buf(&src, 0).unwrap();
         let mut compression = CompressionTable::new();
         let mut dst = Vec::new();
 
-        name.encode_with_compression(&mut dst, &src, &mut compression, 0).unwrap();
+        name.encode_with_compression(&mut dst, &src, &mut compression, 0)
+            .unwrap();
         assert_eq!(dst, src);
 
-        name.encode_with_compression(&mut dst, &src, &mut compression, 13).unwrap();
+        name.encode_with_compression(&mut dst, &src, &mut compression, 13)
+            .unwrap();
         assert_eq!(dst.len(), 15);
         assert_eq!(dst[13], 0xC0);
         assert_eq!(dst[14], 0x00);
@@ -988,8 +1172,7 @@ mod tests {
     #[test]
     fn name_ref_zero_copy_bytes() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
         ];
         let name = NameRef::from_buf(&src, 0).unwrap();
         let bytes = name.as_bytes(&src);
@@ -999,8 +1182,8 @@ mod tests {
     #[test]
     fn question_ref_zero_copy_bytes() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+            0x01, 0x00, 0x01,
         ];
         let q_ref = QuestionRef::new(0, 17);
         let bytes = q_ref.as_bytes(&src);
@@ -1013,9 +1196,8 @@ mod tests {
     #[test]
     fn resource_record_ref_zero_copy_bytes() {
         let src: Vec<u8> = vec![
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
-            0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+            0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
         ];
         let name = NameRef::from_buf(&src, 0).unwrap();
         let rr_ref = ResourceRecordRef::new(name, src.len() as u16);

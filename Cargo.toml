@@ -11,7 +11,7 @@ categories = ["network-programming", "parsing"]
 readme = "README.md"
 
 [dependencies]
-dns-message="0.2"
+dns-message = { git = "https://github.com/WatchDG/rust-dns-message.git", branch = "feature/dnssec" }
 mt = "0.3"
 
 [dev-dependencies]

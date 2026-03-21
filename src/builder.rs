@@ -368,7 +368,11 @@ impl MessageRefBuilder {
         12 + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
             + self.answers.iter().map(|r| r.len as usize).sum::<usize>()
             + self.authority.iter().map(|r| r.len as usize).sum::<usize>()
-            + self.additional.iter().map(|r| r.len as usize).sum::<usize>()
+            + self
+                .additional
+                .iter()
+                .map(|r| r.len as usize)
+                .sum::<usize>()
     }
 
     pub fn build_to(
@@ -386,19 +390,17 @@ impl MessageRefBuilder {
         let au_count = self.authority.len() as u16;
         let ad_count = self.additional.len() as u16;
 
-        let header = dns_message::Header::new(
-            id,
-            flags,
-            q_count,
-            an_count,
-            au_count,
-            ad_count,
-        );
+        let header = dns_message::Header::new(id, flags, q_count, an_count, au_count, ad_count);
 
-        let total_size = 12 + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
+        let total_size = 12
+            + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
             + self.answers.iter().map(|r| r.len as usize).sum::<usize>()
             + self.authority.iter().map(|r| r.len as usize).sum::<usize>()
-            + self.additional.iter().map(|r| r.len as usize).sum::<usize>();
+            + self
+                .additional
+                .iter()
+                .map(|r| r.len as usize)
+                .sum::<usize>();
 
         dst.reserve(total_size);
         dst.resize(12, 0);
@@ -438,23 +440,21 @@ impl MessageRefBuilder {
         let au_count = self.authority.len() as u16;
         let ad_count = self.additional.len() as u16;
 
-        let total_size = 12 + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
+        let total_size = 12
+            + self.questions.iter().map(|q| q.len as usize).sum::<usize>()
             + self.answers.iter().map(|r| r.len as usize).sum::<usize>()
             + self.authority.iter().map(|r| r.len as usize).sum::<usize>()
-            + self.additional.iter().map(|r| r.len as usize).sum::<usize>();
+            + self
+                .additional
+                .iter()
+                .map(|r| r.len as usize)
+                .sum::<usize>();
 
         if dst.len() < total_size {
             return Err(Error::InsufficientData);
         }
 
-        let header = dns_message::Header::new(
-            id,
-            flags,
-            q_count,
-            an_count,
-            au_count,
-            ad_count,
-        );
+        let header = dns_message::Header::new(id, flags, q_count, an_count, au_count, ad_count);
 
         encode_header(&header, &mut dst[..12])?;
         let mut offset = 12;
@@ -507,14 +507,7 @@ impl MessageRefBuilder {
         let au_count = self.authority.len() as u16;
         let ad_count = self.additional.len() as u16;
 
-        let header = dns_message::Header::new(
-            id,
-            flags,
-            q_count,
-            an_count,
-            au_count,
-            ad_count,
-        );
+        let header = dns_message::Header::new(id, flags, q_count, an_count, au_count, ad_count);
 
         dst.reserve(12);
         dst.resize(12, 0);
@@ -616,9 +609,9 @@ mod message_ref_builder_tests {
 
     fn sample_message_bytes() -> Vec<u8> {
         vec![
-            0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01,
         ]
     }
 
@@ -662,8 +655,7 @@ mod message_ref_builder_tests {
         let bytes = sample_message_bytes();
         let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
 
-        let builder = MessageRefBuilder::from_ref(&msg_ref)
-            .question(msg_ref.question.questions[0]);
+        let builder = MessageRefBuilder::from_ref(&msg_ref).question(msg_ref.question.questions[0]);
 
         assert_eq!(builder.buffer_size(), bytes.len());
     }
@@ -676,8 +668,7 @@ mod message_ref_builder_tests {
         let base_header = msg_ref.header.decode_header(&bytes).unwrap();
         let base_flags = base_header.flags;
 
-        let builder = MessageRefBuilder::from_ref(&msg_ref)
-            .question(msg_ref.question.questions[0]);
+        let builder = MessageRefBuilder::from_ref(&msg_ref).question(msg_ref.question.questions[0]);
 
         let size = builder.buffer_size();
         let mut buf = vec![0u8; size];
@@ -698,8 +689,7 @@ mod message_ref_builder_tests {
         let base_header = msg_ref.header.decode_header(&bytes).unwrap();
         let base_flags = base_header.flags;
 
-        let builder = MessageRefBuilder::from_ref(&msg_ref)
-            .question(msg_ref.question.questions[0]);
+        let builder = MessageRefBuilder::from_ref(&msg_ref).question(msg_ref.question.questions[0]);
 
         let mut buf = vec![0u8; 10];
 
@@ -724,11 +714,9 @@ mod message_ref_builder_tests {
     #[test]
     fn message_ref_builder_multiple_questions() {
         let bytes = vec![
-            0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x04, b'n', b's', b'1', 0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x02, 0x00, 0x01,
+            0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x04, b'n', b's', b'1', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x02, 0x00, 0x01,
         ];
         let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
         let base_header = msg_ref.header.decode_header(&bytes).unwrap();
@@ -739,7 +727,9 @@ mod message_ref_builder_tests {
             .question(msg_ref.question.questions[1]);
         dst.reserve(builder.buffer_size());
 
-        builder.build_to(&mut dst, &bytes, base_header.id, base_header.flags).unwrap();
+        builder
+            .build_to(&mut dst, &bytes, base_header.id, base_header.flags)
+            .unwrap();
 
         assert_eq!(dst.len(), bytes.len());
         assert_eq!(dst[4..6], [0x00, 0x02]);
@@ -751,12 +741,12 @@ mod message_ref_builder_tests {
         let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
         let base_header = msg_ref.header.decode_header(&bytes).unwrap();
 
-        let builder = MessageRefBuilder::from_ref(&msg_ref)
-            .question(msg_ref.question.questions[0]);
+        let builder = MessageRefBuilder::from_ref(&msg_ref).question(msg_ref.question.questions[0]);
         let size = builder.buffer_size();
         let mut dst = vec![0xFFu8; 100];
 
-        builder.write_to_slice(&mut dst[..size], &bytes, base_header.id, base_header.flags)
+        builder
+            .write_to_slice(&mut dst[..size], &bytes, base_header.id, base_header.flags)
             .unwrap();
 
         assert_eq!(&dst[12..size], &bytes[12..]);
@@ -771,8 +761,7 @@ mod message_ref_builder_tests {
         let builder = MessageRefBuilder::from_ref(&msg_ref);
         assert_eq!(builder.buffer_size(), 12);
 
-        let builder = MessageRefBuilder::from_ref(&msg_ref)
-            .question(msg_ref.question.questions[0]);
+        let builder = MessageRefBuilder::from_ref(&msg_ref).question(msg_ref.question.questions[0]);
         assert_eq!(builder.buffer_size(), bytes.len());
     }
 
@@ -817,22 +806,14 @@ mod message_ref_builder_tests {
     #[test]
     fn compression_reduces_size() {
         let bytes = vec![
-            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x23,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x24,
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+            0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x23, 0x07,
+            b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x24,
         ];
         let msg_ref = crate::decode::decode_message_ref(&bytes).unwrap();
         let base_header = msg_ref.header.decode_header(&bytes).unwrap();
@@ -843,7 +824,12 @@ mod message_ref_builder_tests {
             .answer(msg_ref.answer.records[0])
             .answer(msg_ref.answer.records[1])
             .answer(msg_ref.answer.records[2])
-            .build_to(&mut dst_no_compress, &bytes, base_header.id, base_header.flags)
+            .build_to(
+                &mut dst_no_compress,
+                &bytes,
+                base_header.id,
+                base_header.flags,
+            )
             .unwrap();
 
         let mut dst_compress = Vec::new();
@@ -861,14 +847,10 @@ mod message_ref_builder_tests {
 
     fn sample_dns_message_with_answer() -> Vec<u8> {
         vec![
-            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01,
-            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-            0x03, b'c', b'o', b'm', 0x00,
-            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10,
-            0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
+            0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, b'e',
+            b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0x5d, 0xb8, 0xd8, 0x22,
         ]
     }
 }
